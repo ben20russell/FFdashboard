@@ -1,3 +1,5 @@
+import React from 'react';
+
 type StatCardProps = {
   title: string;
   value: string | number;

@@ -36,6 +36,10 @@ export function calculatePlayerValue(playerData: Partial<PlayerInput>): number {
       ? playerData.projected_points
       : typeof playerData.projected_points === 'string'
         ? Number.parseFloat(playerData.projected_points)
+        : typeof playerData.projectedPoints === 'number'
+          ? playerData.projectedPoints
+          : typeof playerData.projectedPoints === 'string'
+            ? Number.parseFloat(playerData.projectedPoints)
         : typeof playerData.points === 'number'
           ? playerData.points
           : typeof playerData.points === 'string'
