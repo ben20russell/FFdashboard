@@ -1,5 +1,6 @@
 import DashboardClient from './DashboardClient';
 import { DashboardErrorBoundary } from '@/components/DashboardErrorBoundary';
+import { RawApiOutput } from '@/components/RawApiOutput';
 import { getFantasyProsPlayers } from '@/lib/fantasypros';
 
 type DashboardTablePlayer = {
@@ -63,6 +64,10 @@ export default async function Page() {
         <DashboardErrorBoundary>
           <DashboardClient initialData={players} />
         </DashboardErrorBoundary>
+
+        <div className="mt-8">
+          <RawApiOutput payload={result.rawPayload} />
+        </div>
       </div>
     </main>
   );

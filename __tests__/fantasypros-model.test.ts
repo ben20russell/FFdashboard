@@ -59,4 +59,43 @@ describe('buildFullFantasyProsModel', () => {
     expect(result.players[0]?.projectedPoints).toBe(18.4);
     expect(result.players[0]?.position).toBe('RB');
   });
+
+  it('keeps base player records when supplemental sources are empty', () => {
+    const result = buildFullFantasyProsModel({
+      players: [
+        { id: 10, player_name: 'Only Players Feed QB', position_id: 'QB', team_id: 'BUF' },
+        { id: 11, player_name: 'Only Players Feed WR', position_id: 'WR', team_id: 'MIA' },
+      ],
+      rankings: [],
+      projections: [],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(2);
+    expect(result.players.map((player) => player.name)).toEqual([
+      'Only Players Feed QB',
+      'Only Players Feed WR',
+    ]);
+    expect(result.players[0]?.projectedPoints).toBe(0);
+    expect(result.players[0]?.overallRank).toBeNull();
+    expect(result.players[0]?.injuryStatus).toBeNull();
+  });
+
+  it('does not collapse different players who share a name but differ by team/position when ids are missing', () => {
+    const result = buildFullFantasyProsModel({
+      players: [],
+      rankings: [
+        { player_name: 'J. Williams', position_id: 'WR', team_id: 'DET', rank_ecr: '40' },
+        { player_name: 'J. Williams', position_id: 'RB', team_id: 'DEN', rank_ecr: '55' },
+      ],
+      projections: [
+        { player_name: 'J. Williams', position_id: 'WR', team_id: 'DET', projected_points: '12.3' },
+        { player_name: 'J. Williams', position_id: 'RB', team_id: 'DEN', projected_points: '9.1' },
+      ],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(2);
+    expect(result.players.map((player) => player.position).sort()).toEqual(['RB', 'WR']);
+  });
 });

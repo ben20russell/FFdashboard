@@ -108,7 +108,28 @@ function createAliases(record: Partial<FantasyProsRecord>): string[] {
   }
 
   const normalizedName = normalizeName(record).toLowerCase();
+  const normalizedPosition = normalizePosition(record);
+  const normalizedTeam =
+    ((typeof record.team_id === 'string' && record.team_id) ||
+      (typeof record.team === 'string' && record.team) ||
+      (typeof record.team_abbr === 'string' && record.team_abbr) ||
+      '')
+      .trim()
+      .toUpperCase();
+
   if (normalizedName) {
+    if (normalizedPosition) {
+      aliases.push(`name-pos:${normalizedName}|${normalizedPosition}`);
+    }
+
+    if (normalizedTeam) {
+      aliases.push(`name-team:${normalizedName}|${normalizedTeam}`);
+    }
+
+    if (normalizedPosition && normalizedTeam) {
+      aliases.push(`name-pos-team:${normalizedName}|${normalizedPosition}|${normalizedTeam}`);
+    }
+
     aliases.push(`name:${normalizedName}`);
   }
 
@@ -118,7 +139,7 @@ function createAliases(record: Partial<FantasyProsRecord>): string[] {
 function getWeekQueryFromEnv(): FantasyProsQueryParams {
   const week = process.env.FANTASYPROS_WEEK;
   if (!week) {
-    return { week: 0 };
+    return {};
   }
 
   const parsedWeek = Number.parseInt(week, 10);
@@ -152,9 +173,20 @@ function mergeRecordsByKey(
       continue;
     }
 
-    const matchedCanonicals = Array.from(
-      new Set(aliases.map((alias) => aliasToCanonicalKeyMap.get(alias)).filter((value): value is string => Boolean(value))),
+    const hasSpecificNameAlias = aliases.some((alias) => alias.startsWith('name-pos:') || alias.startsWith('name-team:') || alias.startsWith('name-pos-team:'));
+    const specificAliases = aliases.filter((alias) => !alias.startsWith('name:'));
+
+    const specificMatchedCanonicals = Array.from(
+      new Set(
+        specificAliases.map((alias) => aliasToCanonicalKeyMap.get(alias)).filter((value): value is string => Boolean(value)),
+      ),
     );
+
+    const matchedCanonicals = hasSpecificNameAlias
+      ? specificMatchedCanonicals
+      : Array.from(
+          new Set(aliases.map((alias) => aliasToCanonicalKeyMap.get(alias)).filter((value): value is string => Boolean(value))),
+        );
 
     const canonicalKey = matchedCanonicals[0] ?? aliases[0];
 
@@ -274,10 +306,14 @@ export function buildFullFantasyProsModel(input: {
   mergeRecordsByKey(input.projections as FantasyProsRecord[], entityMap, aliasToCanonicalKeyMap, 'projection');
   mergeRecordsByKey(input.injuries as FantasyProsRecord[], entityMap, aliasToCanonicalKeyMap, 'injury');
 
-  const mergedPlayers = Array.from(entityMap.values()).map((entry, index) => buildDashboardPlayer(entry, index));
-  const players = mergedPlayers.filter(
-    (player) => player.overallRank !== null || player.projectedPoints > 0 || Boolean(player.injuryStatus),
-  );
+  const mergedEntries = Array.from(entityMap.values());
+  const mergedPlayers = mergedEntries.map((entry, index) => buildDashboardPlayer(entry, index));
+  const players = mergedPlayers.filter((player, index) => {
+    const entry = mergedEntries[index];
+    const hasBasePlayerRecord = Boolean(entry?.records.player);
+
+    return hasBasePlayerRecord || player.overallRank !== null || player.projectedPoints > 0 || Boolean(player.injuryStatus);
+  });
 
   console.log('[buildFullFantasyProsModel] Model merge completed', {
     sourcePlayers: input.players.length,
@@ -316,7 +352,6 @@ export async function getFantasyProsPlayers(): Promise<FantasyProsResult> {
     getFantasyProsRankings(rankingsAndProjectionsQuery),
     getFantasyProsProjections({
       ...rankingsAndProjectionsQuery,
-      positions: 'QB:RB:WR:TE:K:DST',
     }),
     getFantasyProsInjuries(weekQuery),
   ]);
