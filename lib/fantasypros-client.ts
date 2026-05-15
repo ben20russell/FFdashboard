@@ -27,6 +27,18 @@ type BuildEndpointOptions = {
   query?: FantasyProsQueryParams;
 };
 
+type BuildSeasonEndpointOptions = {
+  sport: FantasyProsSport;
+  season: number;
+  resource: 'rankings' | 'consensus-rankings';
+  query?: FantasyProsQueryParams;
+};
+
+type BuildNflProjectionEndpointOptions = {
+  season: number;
+  query?: FantasyProsQueryParams;
+};
+
 export function buildFantasyProsEndpoint({ sport, resource, query }: BuildEndpointOptions): string {
   const basePath = `${FANTASYPROS_API_BASE_URL}/${sport.toUpperCase()}/${resource}`;
 
@@ -48,6 +60,35 @@ export function buildFantasyProsEndpoint({ sport, resource, query }: BuildEndpoi
   return queryString ? `${basePath}?${queryString}` : basePath;
 }
 
+function withQueryString(basePath: string, query?: FantasyProsQueryParams): string {
+  if (!query) {
+    return basePath;
+  }
+
+  const searchParams = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === null || value === undefined || value === '') {
+      continue;
+    }
+
+    searchParams.set(key, String(value));
+  }
+
+  const queryString = searchParams.toString();
+  return queryString ? `${basePath}?${queryString}` : basePath;
+}
+
+export function buildFantasyProsSeasonEndpoint({ sport, season, resource, query }: BuildSeasonEndpointOptions): string {
+  const basePath = `${FANTASYPROS_API_BASE_URL}/${sport.toUpperCase()}/${season}/${resource}`;
+  return withQueryString(basePath, query);
+}
+
+export function buildFantasyProsNflProjectionEndpoint({ season, query }: BuildNflProjectionEndpointOptions): string {
+  const basePath = `${FANTASYPROS_API_BASE_URL}/nfl/${season}/projections`;
+  return withQueryString(basePath, query);
+}
+
 function getConfiguredSport(inputSport?: FantasyProsSport): FantasyProsSport {
   if (inputSport) {
     return inputSport.toUpperCase() as FantasyProsSport;
@@ -59,6 +100,22 @@ function getConfiguredSport(inputSport?: FantasyProsSport): FantasyProsSport {
   }
 
   return DEFAULT_SPORT;
+}
+
+function getConfiguredSeason(): number {
+  const envSeason = process.env.FANTASYPROS_SEASON;
+
+  if (!envSeason) {
+    return new Date().getFullYear();
+  }
+
+  const parsedSeason = Number.parseInt(envSeason, 10);
+  if (!Number.isFinite(parsedSeason) || parsedSeason < 2012) {
+    console.warn('[getConfiguredSeason] Invalid FANTASYPROS_SEASON value, using current year', { envSeason });
+    return new Date().getFullYear();
+  }
+
+  return parsedSeason;
 }
 
 export function extractCollectionFromPayload<TItem extends FantasyProsRecord>(
@@ -76,6 +133,22 @@ export function extractCollectionFromPayload<TItem extends FantasyProsRecord>(
       return objectPayload[preferredKey] as TItem[];
     }
 
+    if (Array.isArray(objectPayload.players)) {
+      return objectPayload.players as TItem[];
+    }
+
+    if (Array.isArray(objectPayload.rankings)) {
+      return objectPayload.rankings as TItem[];
+    }
+
+    if (Array.isArray(objectPayload.projections)) {
+      return objectPayload.projections as TItem[];
+    }
+
+    if (Array.isArray(objectPayload.injuries)) {
+      return objectPayload.injuries as TItem[];
+    }
+
     if (Array.isArray(objectPayload.data)) {
       return objectPayload.data as TItem[];
     }
@@ -87,19 +160,25 @@ export function extractCollectionFromPayload<TItem extends FantasyProsRecord>(
 export async function fetchFantasyProsCollection<TItem extends FantasyProsRecord>(
   options: FetchCollectionOptions,
 ): Promise<FantasyProsFetchResult<TItem>> {
-  const apiKey = process.env.FANTASYPROS_API_KEY;
   const sport = getConfiguredSport(options.sport);
-  const fetchedAtIso = new Date().toISOString();
   const endpoint = buildFantasyProsEndpoint({
     sport,
     resource: options.resource,
     query: options.query,
   });
+  return fetchFantasyProsCollectionByEndpoint<TItem>(endpoint, options.preferredKey);
+}
+
+async function fetchFantasyProsCollectionByEndpoint<TItem extends FantasyProsRecord>(
+  endpoint: string,
+  preferredKey: FantasyProsCollectionKey,
+): Promise<FantasyProsFetchResult<TItem>> {
+  const apiKey = process.env.FANTASYPROS_API_KEY;
+  const fetchedAtIso = new Date().toISOString();
 
   console.log('[fetchFantasyProsCollection] Request start', {
     endpoint,
-    sport,
-    preferredKey: options.preferredKey,
+    preferredKey,
     hasApiKey: Boolean(apiKey),
     revalidateSeconds: DEFAULT_REVALIDATE_SECONDS,
   });
@@ -157,11 +236,11 @@ export async function fetchFantasyProsCollection<TItem extends FantasyProsRecord
     }
 
     const rawPayload = (await response.json()) as unknown;
-    const items = extractCollectionFromPayload<TItem>(rawPayload, options.preferredKey);
+    const items = extractCollectionFromPayload<TItem>(rawPayload, preferredKey);
 
     console.log('[fetchFantasyProsCollection] Parsed collection', {
       endpoint,
-      preferredKey: options.preferredKey,
+      preferredKey,
       itemCount: items.length,
     });
 
@@ -199,19 +278,58 @@ export async function getFantasyProsPlayers(query?: FantasyProsQueryParams) {
 }
 
 export async function getFantasyProsRankings(query?: FantasyProsQueryParams) {
-  return fetchFantasyProsCollection<FantasyProsRankingRecord>({
-    resource: 'rankings',
-    preferredKey: 'rankings',
-    query,
-  });
+  const sport = getConfiguredSport();
+  const configuredSeason = getConfiguredSeason();
+  const seasonsToTry = [configuredSeason, configuredSeason - 1];
+
+  for (const season of seasonsToTry) {
+    const endpoint = buildFantasyProsSeasonEndpoint({
+      sport,
+      season,
+      resource: 'rankings',
+      query,
+    });
+
+    const result = await fetchFantasyProsCollectionByEndpoint<FantasyProsRankingRecord>(endpoint, 'players');
+    if (result.items.length > 0 || !result.errorMessage) {
+      return result;
+    }
+  }
+
+  return fetchFantasyProsCollectionByEndpoint<FantasyProsRankingRecord>(
+    buildFantasyProsSeasonEndpoint({
+      sport,
+      season: configuredSeason,
+      resource: 'rankings',
+      query,
+    }),
+    'players',
+  );
 }
 
 export async function getFantasyProsProjections(query?: FantasyProsQueryParams) {
-  return fetchFantasyProsCollection<FantasyProsProjectionRecord>({
-    resource: 'projections',
-    preferredKey: 'projections',
-    query,
-  });
+  const configuredSeason = getConfiguredSeason();
+  const seasonsToTry = [configuredSeason, configuredSeason - 1];
+
+  for (const season of seasonsToTry) {
+    const endpoint = buildFantasyProsNflProjectionEndpoint({
+      season,
+      query,
+    });
+
+    const result = await fetchFantasyProsCollectionByEndpoint<FantasyProsProjectionRecord>(endpoint, 'players');
+    if (result.items.length > 0 || !result.errorMessage) {
+      return result;
+    }
+  }
+
+  return fetchFantasyProsCollectionByEndpoint<FantasyProsProjectionRecord>(
+    buildFantasyProsNflProjectionEndpoint({
+      season: configuredSeason,
+      query,
+    }),
+    'players',
+  );
 }
 
 export async function getFantasyProsInjuries(query?: FantasyProsQueryParams) {

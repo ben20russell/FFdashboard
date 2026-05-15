@@ -45,4 +45,18 @@ describe('buildFullFantasyProsModel', () => {
     expect(result.players[0]?.position).toBe('WR');
     expect(result.players[0]?.projectedPoints).toBe(13.4);
   });
+
+  it('parses nested ranking/projection payload shapes from official endpoints', () => {
+    const result = buildFullFantasyProsModel({
+      players: [{ id: 7354, player_name: 'Saquon Barkley', position_id: 'RB', team_id: 'PHI' }],
+      rankings: [{ id: 7354, player_name: 'Saquon Barkley', rank_ecr: '2', position_id: 'RB' }],
+      projections: [{ id: 7354, player_name: 'Saquon Barkley', position_id: 'RB', stats: [{ points: '18.4' }] }],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(1);
+    expect(result.players[0]?.overallRank).toBe(2);
+    expect(result.players[0]?.projectedPoints).toBe(18.4);
+    expect(result.players[0]?.position).toBe('RB');
+  });
 });

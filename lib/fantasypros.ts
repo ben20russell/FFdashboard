@@ -28,10 +28,50 @@ function parseFloatSafe(value: unknown): number {
 }
 
 function parseProjectedPoints(player: Partial<PlayerInput>): number {
-  return parseFloatSafe(player.projected_points ?? player.projectedPoints ?? player.points);
+  const directPoints = parseFloatSafe(player.projected_points ?? player.projectedPoints ?? player.points);
+  if (directPoints > 0) {
+    return directPoints;
+  }
+
+  const stats = player.stats;
+  if (Array.isArray(stats) && stats.length > 0) {
+    const firstStat = stats[0];
+
+    if (firstStat && typeof firstStat === 'object') {
+      const statRecord = firstStat as Record<string, unknown>;
+      const statPoints = parseFloatSafe(
+        statRecord.points ??
+          statRecord.points_ppr ??
+          statRecord.points_half ??
+          statRecord.fantasy_points ??
+          statRecord.projected_points,
+      );
+
+      if (statPoints > 0) {
+        return statPoints;
+      }
+    }
+  }
+
+  return directPoints;
 }
 
 function parseRank(input: unknown): number | null {
+  if (input && typeof input === 'object') {
+    const inputRecord = input as Record<string, unknown>;
+    const nestedRank = parseFloatSafe(
+      inputRecord.rank_ecr ??
+        inputRecord.ecr ??
+        (inputRecord.ECR && typeof inputRecord.ECR === 'object'
+          ? (inputRecord.ECR as Record<string, unknown>).ALL
+          : undefined),
+    );
+
+    if (nestedRank > 0) {
+      return Math.round(nestedRank);
+    }
+  }
+
   const rank = parseFloatSafe(input);
   if (!Number.isFinite(rank) || rank <= 0) {
     return null;
@@ -51,7 +91,12 @@ function normalizeName(record: Partial<FantasyProsRecord>): string {
 }
 
 function normalizePosition(record: Partial<FantasyProsRecord>): string {
-  const position = typeof record.position === 'string' ? record.position.trim().toUpperCase() : '';
+  const positionSource =
+    (typeof record.position === 'string' && record.position) ||
+    (typeof record.position_id === 'string' && record.position_id) ||
+    (typeof record.pos === 'string' && record.pos) ||
+    '';
+  const position = positionSource.trim().toUpperCase();
   return position;
 }
 
@@ -165,6 +210,7 @@ function buildDashboardPlayer(
 
   const overallRank = parseRank(
     rankingRecord.rank ??
+      rankingRecord.rank_ecr ??
       rankingRecord.overall_rank ??
       rankingRecord.overallRank ??
       rankingRecord.ecr ??

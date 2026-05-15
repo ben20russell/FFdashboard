@@ -15,6 +15,7 @@ function extractTeamFromRaw(raw: Record<string, unknown>): string {
   const teamCandidate =
     (typeof raw.team === 'string' && raw.team) ||
     (typeof raw.team_abbr === 'string' && raw.team_abbr) ||
+    (typeof raw.team_id === 'string' && raw.team_id) ||
     (typeof raw.teamAbbr === 'string' && raw.teamAbbr) ||
     (typeof raw.Team === 'string' && raw.Team) ||
     '';

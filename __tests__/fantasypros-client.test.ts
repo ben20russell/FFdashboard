@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildFantasyProsEndpoint,
+  buildFantasyProsNflProjectionEndpoint,
+  buildFantasyProsSeasonEndpoint,
   extractCollectionFromPayload,
   fetchFantasyProsCollection,
   getFantasyProsInjuries,
@@ -15,6 +17,7 @@ describe('fantasypros-client', () => {
     vi.restoreAllMocks();
     delete process.env.FANTASYPROS_API_KEY;
     delete process.env.FANTASYPROS_SPORT;
+    delete process.env.FANTASYPROS_SEASON;
   });
 
   it('builds endpoint paths for public v2 json API', () => {
@@ -35,6 +38,22 @@ describe('fantasypros-client', () => {
     expect(endpoint).toContain('/NFL/rankings?');
     expect(endpoint).toContain('week=1');
     expect(endpoint).toContain('scoring=PPR');
+  });
+
+  it('builds season-based ranking and projection endpoints', () => {
+    const rankingsEndpoint = buildFantasyProsSeasonEndpoint({
+      sport: 'NFL',
+      season: 2025,
+      resource: 'rankings',
+      query: { week: 1 },
+    });
+    const projectionsEndpoint = buildFantasyProsNflProjectionEndpoint({
+      season: 2025,
+      query: { week: 1 },
+    });
+
+    expect(rankingsEndpoint).toBe('https://api.fantasypros.com/public/v2/json/NFL/2025/rankings?week=1');
+    expect(projectionsEndpoint).toBe('https://api.fantasypros.com/public/v2/json/nfl/2025/projections?week=1');
   });
 
   it('extracts preferred collection key from payload', () => {
@@ -87,6 +106,7 @@ describe('fantasypros-client', () => {
 
   it('supports rankings/projections/injuries wrappers', async () => {
     process.env.FANTASYPROS_API_KEY = 'test-key';
+    process.env.FANTASYPROS_SEASON = '2025';
 
     const fetchMock = vi
       .spyOn(global, 'fetch')
@@ -113,6 +133,9 @@ describe('fantasypros-client', () => {
     ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.fantasypros.com/public/v2/json/NFL/2025/rankings?week=1');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.fantasypros.com/public/v2/json/nfl/2025/projections?week=1');
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('https://api.fantasypros.com/public/v2/json/NFL/injuries');
     expect(rankings.items).toEqual([{ id: 'r1' }]);
     expect(projections.items).toEqual([{ id: 'p1' }]);
     expect(injuries.items).toEqual([{ id: 'i1' }]);
