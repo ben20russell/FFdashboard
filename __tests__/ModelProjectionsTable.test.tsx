@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
@@ -10,6 +11,8 @@ const players = [
     position: 'QB',
     projectedPoints: 20,
     customValueScore: 80,
+    overallRank: 12,
+    injuryStatus: null,
   },
   {
     id: '2',
@@ -17,6 +20,8 @@ const players = [
     position: 'RB',
     projectedPoints: 18,
     customValueScore: 90,
+    overallRank: 6,
+    injuryStatus: 'Questionable',
   },
 ];
 
@@ -27,6 +32,7 @@ describe('ModelProjectionsTable', () => {
     expect(screen.getByTestId('projection-row-1')).toBeInTheDocument();
     expect(screen.getByText('Player A')).toBeInTheDocument();
     expect(screen.getByText('Player B')).toBeInTheDocument();
+    expect(screen.getByText('Questionable')).toBeInTheDocument();
   });
 
   it('sorts players by custom value score in descending order', () => {
