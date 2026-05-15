@@ -1,17 +1,8 @@
 import DashboardClient from './DashboardClient';
 import { DashboardErrorBoundary } from '@/components/DashboardErrorBoundary';
+import { getFantasyProsPlayers } from '@/lib/fantasypros';
 
-const FANTASY_PROS_ENDPOINT = 'https://api.fantasypros.com/v2/json/nfl/projections';
-const REVALIDATE_SECONDS = 3600;
-const FALLBACK_PLAYERS: Player[] = [
-  { id: '1', name: 'Christian McCaffrey', team: 'SF', position: 'RB', ecr: 1, proj_pts: 21.5 },
-  { id: '2', name: 'CeeDee Lamb', team: 'DAL', position: 'WR', ecr: 2, proj_pts: 19.8 },
-  { id: '3', name: 'Josh Allen', team: 'BUF', position: 'QB', ecr: 15, proj_pts: 24.1 },
-  { id: '4', name: 'Sam LaPorta', team: 'DET', position: 'TE', ecr: 28, proj_pts: 14.2 },
-  { id: '5', name: 'Breece Hall', team: 'NYJ', position: 'RB', ecr: 6, proj_pts: 17.4 },
-];
-
-type Player = {
+type DashboardTablePlayer = {
   id: string;
   name: string;
   team: string;
@@ -20,102 +11,37 @@ type Player = {
   proj_pts?: number;
 };
 
-type RawPlayer = {
-  id?: string | number;
-  player_id?: string | number;
-  name?: string;
-  player_name?: string;
-  team?: string;
-  team_abbr?: string;
-  position?: string;
-  pos?: string;
-  ecr?: number | string;
-  proj_pts?: number | string;
-};
+function extractTeamFromRaw(raw: Record<string, unknown>): string {
+  const teamCandidate =
+    (typeof raw.team === 'string' && raw.team) ||
+    (typeof raw.team_abbr === 'string' && raw.team_abbr) ||
+    (typeof raw.teamAbbr === 'string' && raw.teamAbbr) ||
+    (typeof raw.Team === 'string' && raw.Team) ||
+    '';
 
-function toNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number.parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
+  return teamCandidate || 'N/A';
 }
 
-function normalizeFantasyPlayers(payload: unknown): Player[] {
-  const source = payload && typeof payload === 'object' && Array.isArray((payload as { players?: unknown[] }).players)
-    ? ((payload as { players: unknown[] }).players ?? [])
-    : [];
-
-  const normalized: Player[] = source
-    .map((item, index): Player | null => {
-      if (!item || typeof item !== 'object') return null;
-      const player = item as RawPlayer;
-      const name = player.name ?? player.player_name;
-      const team = player.team ?? player.team_abbr;
-      const position = player.position ?? player.pos;
-
-      if (!name || !team || !position) return null;
-
-      return {
-        id: String(player.id ?? player.player_id ?? `${name}-${position}-${index}`),
-        name,
-        team,
-        position: position.toUpperCase(),
-        ecr: toNumber(player.ecr),
-        proj_pts: toNumber(player.proj_pts),
-      };
-    })
-    .filter((player): player is Player => player !== null);
-
-  console.log('[Page] Normalized FantasyPros payload', {
-    rawCount: source.length,
-    normalizedCount: normalized.length,
-  });
-
-  return normalized;
-}
-
-async function fetchFantasyData(): Promise<Player[] | null> {
-  const apiKey = process.env.FANTASYPROS_API_KEY;
-  console.log('[Page] Starting FantasyPros fetch', {
-    endpoint: FANTASY_PROS_ENDPOINT,
-    hasApiKey: Boolean(apiKey),
-  });
-
-  try {
-    const res = await fetch(FANTASY_PROS_ENDPOINT, {
-      headers: {
-        'x-api-key': apiKey || '',
-      },
-      next: { revalidate: REVALIDATE_SECONDS },
-    });
-
-    console.log('[Page] FantasyPros response received', {
-      ok: res.ok,
-      status: res.status,
-    });
-
-    if (!res.ok) {
-      throw new Error('Failed to fetch data');
-    }
-
-    const json = await res.json();
-    return normalizeFantasyPlayers(json);
-  } catch (error) {
-    console.error('[Page] API Error:', error);
-    return null;
-  }
+function mapToDashboardTablePlayers(players: Awaited<ReturnType<typeof getFantasyProsPlayers>>['players']): DashboardTablePlayer[] {
+  return players.map((player) => ({
+    id: player.id,
+    name: player.name,
+    team: extractTeamFromRaw(player.raw),
+    position: player.position,
+    ecr: player.overallRank ?? undefined,
+    proj_pts: player.projectedPoints,
+  }));
 }
 
 export default async function Page() {
-  const data = await fetchFantasyData();
+  console.log('[Page] Fetching full merged FantasyPros model from server');
 
-  const players = data && data.length > 0 ? data : FALLBACK_PLAYERS;
+  const result = await getFantasyProsPlayers();
+  const players = mapToDashboardTablePlayers(result.players);
 
-  console.log('[Page] Rendering dashboard', {
-    source: data ? 'api' : 'fallback',
+  console.log('[Page] Rendering dashboard from full model', {
     playersCount: players.length,
+    hadError: Boolean(result.errorMessage),
   });
 
   return (
@@ -123,7 +49,14 @@ export default async function Page() {
       <div className="mx-auto max-w-7xl" data-testid="dashboard-container">
         <header className="mb-8" data-testid="dashboard-header">
           <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-slate-900">NFL Fantasy Intelligence</h1>
-          <p className="text-lg text-slate-500">Live player projections, rankings, and advanced metrics.</p>
+          <p className="text-lg text-slate-500">
+            Full-model view combining players, rankings, projections, and injuries.
+          </p>
+          {result.errorMessage ? (
+            <p className="mt-2 text-sm text-red-600" data-testid="dashboard-warning">
+              Some FantasyPros sources failed: {result.errorMessage}
+            </p>
+          ) : null}
         </header>
 
         <DashboardErrorBoundary>
