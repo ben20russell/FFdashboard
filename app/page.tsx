@@ -10,6 +10,7 @@ type DashboardTablePlayer = {
   position: string;
   ecr?: number;
   proj_pts?: number;
+  advancedFields: Record<string, unknown>;
 };
 
 function extractTeamFromRaw(raw: Record<string, unknown>): string {
@@ -32,6 +33,13 @@ function mapToDashboardTablePlayers(players: Awaited<ReturnType<typeof getFantas
     position: player.position,
     ecr: player.overallRank ?? undefined,
     proj_pts: player.projectedPoints,
+    advancedFields: {
+      ...player.raw,
+      overallRank: player.overallRank,
+      projectedPoints: player.projectedPoints,
+      customValueScore: player.customValueScore,
+      injuryStatus: player.injuryStatus,
+    },
   }));
 }
 

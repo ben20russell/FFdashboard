@@ -5,9 +5,33 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import DashboardClient from '@/app/DashboardClient';
 
 const players = [
-  { id: '1', name: 'Christian McCaffrey', team: 'SF', position: 'RB', ecr: 1, proj_pts: 21.5 },
-  { id: '2', name: 'CeeDee Lamb', team: 'DAL', position: 'WR', ecr: 2, proj_pts: 19.8 },
-  { id: '3', name: 'Josh Allen', team: 'BUF', position: 'QB', ecr: 15, proj_pts: 24.1 },
+  {
+    id: '1',
+    name: 'Christian McCaffrey',
+    team: 'SF',
+    position: 'RB',
+    ecr: 1,
+    proj_pts: 21.5,
+    advancedFields: { injuryStatus: null, customValueScore: 92.4, projection: { points: 21.5 } },
+  },
+  {
+    id: '2',
+    name: 'CeeDee Lamb',
+    team: 'DAL',
+    position: 'WR',
+    ecr: 2,
+    proj_pts: 19.8,
+    advancedFields: { injuryStatus: 'Questionable', customValueScore: 89.1, projection: { points: 19.8 } },
+  },
+  {
+    id: '3',
+    name: 'Josh Allen',
+    team: 'BUF',
+    position: 'QB',
+    ecr: 15,
+    proj_pts: 24.1,
+    advancedFields: { injuryStatus: null, customValueScore: 88.6, projection: { points: 24.1 } },
+  },
 ];
 
 describe('DashboardClient', () => {
@@ -66,5 +90,27 @@ describe('DashboardClient', () => {
 
     expect(screen.getByText('0')).toBeInTheDocument();
     expect(screen.getByText('0.0')).toBeInTheDocument();
+  });
+
+  it('shows dynamic advanced columns and renders values after toggle', () => {
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
+    fireEvent.click(screen.getByText('customValueScore'));
+
+    expect(screen.getByTestId('advanced-header-customValueScore')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-cell-1-customValueScore')).toHaveTextContent('92.4');
+  });
+
+  it('renders nested advanced values and fallback dashes', () => {
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
+    fireEvent.click(screen.getByText('injuryStatus'));
+    fireEvent.click(screen.getByText('projection.points'));
+
+    expect(screen.getByTestId('advanced-cell-1-injuryStatus')).toHaveTextContent('-');
+    expect(screen.getByTestId('advanced-cell-2-injuryStatus')).toHaveTextContent('Questionable');
+    expect(screen.getByTestId('advanced-cell-3-projection_points')).toHaveTextContent('24.1');
   });
 });
