@@ -118,7 +118,7 @@ function createAliases(record: Partial<FantasyProsRecord>): string[] {
 function getWeekQueryFromEnv(): FantasyProsQueryParams {
   const week = process.env.FANTASYPROS_WEEK;
   if (!week) {
-    return {};
+    return { week: 0 };
   }
 
   const parsedWeek = Number.parseInt(week, 10);
@@ -128,6 +128,16 @@ function getWeekQueryFromEnv(): FantasyProsQueryParams {
   }
 
   return { week: parsedWeek };
+}
+
+function getScoringQueryFromEnv(): FantasyProsQueryParams {
+  const scoring = process.env.FANTASYPROS_SCORING;
+
+  if (!scoring) {
+    return { scoring: 'PPR' };
+  }
+
+  return { scoring: scoring.toUpperCase() };
 }
 
 function mergeRecordsByKey(
@@ -264,13 +274,17 @@ export function buildFullFantasyProsModel(input: {
   mergeRecordsByKey(input.projections as FantasyProsRecord[], entityMap, aliasToCanonicalKeyMap, 'projection');
   mergeRecordsByKey(input.injuries as FantasyProsRecord[], entityMap, aliasToCanonicalKeyMap, 'injury');
 
-  const players = Array.from(entityMap.values()).map((entry, index) => buildDashboardPlayer(entry, index));
+  const mergedPlayers = Array.from(entityMap.values()).map((entry, index) => buildDashboardPlayer(entry, index));
+  const players = mergedPlayers.filter(
+    (player) => player.overallRank !== null || player.projectedPoints > 0 || Boolean(player.injuryStatus),
+  );
 
   console.log('[buildFullFantasyProsModel] Model merge completed', {
     sourcePlayers: input.players.length,
     sourceRankings: input.rankings.length,
     sourceProjections: input.projections.length,
     sourceInjuries: input.injuries.length,
+    mergedPlayersBeforeFiltering: mergedPlayers.length,
     mergedPlayers: players.length,
   });
 
@@ -285,15 +299,26 @@ export type FantasyProsResult = {
 };
 
 export async function getFantasyProsPlayers(): Promise<FantasyProsResult> {
-  const query = getWeekQueryFromEnv();
+  const weekQuery = getWeekQueryFromEnv();
+  const scoringQuery = getScoringQueryFromEnv();
+  const rankingsAndProjectionsQuery = { ...weekQuery, ...scoringQuery };
 
-  console.log('[getFantasyProsPlayers] Fetching full-model sources', { query });
+  console.log('[getFantasyProsPlayers] Fetching full-model sources', {
+    weekQuery,
+    scoringQuery,
+  });
 
   const [playersResult, rankingsResult, projectionsResult, injuriesResult] = await Promise.all([
-    getFantasyProsPlayersFromApi(),
-    getFantasyProsRankings(query),
-    getFantasyProsProjections(query),
-    getFantasyProsInjuries(query),
+    getFantasyProsPlayersFromApi({
+      ecr: 'included',
+      show: 'pos_rank',
+    }),
+    getFantasyProsRankings(rankingsAndProjectionsQuery),
+    getFantasyProsProjections({
+      ...rankingsAndProjectionsQuery,
+      positions: 'QB:RB:WR:TE:K:DST',
+    }),
+    getFantasyProsInjuries(weekQuery),
   ]);
 
   const model = buildFullFantasyProsModel({
