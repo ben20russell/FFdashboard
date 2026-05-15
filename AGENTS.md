@@ -51,6 +51,10 @@
   - `npm run lint`
   - `npm test`
   - `npm run build`
+- Hard requirement for every response after making changes:
+  - Always provide a working local URL to view the latest changes.
+  - This is mandatory on every completion message with no exceptions.
+  - If the dev server is not running, start it with `npm run dev` and report the active URL.
 - After every code update, ensure the local host network is running so changes can be viewed in-browser:
   - Start or confirm dev server with `npm run dev`.
   - Capture and report the actual active Vite local URL printed in terminal (for example: `http://127.0.0.1:3004/`).
