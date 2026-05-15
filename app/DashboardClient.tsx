@@ -14,8 +14,8 @@ export type Player = {
 
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'] as const;
 type PositionFilter = (typeof POSITIONS)[number];
-type SortKey = 'name' | 'ecr' | 'proj_pts';
 type SortDirection = 'asc' | 'desc';
+type SortKey = 'name' | 'team' | 'position' | 'ecr' | 'proj_pts' | `advanced:${string}`;
 type SortConfig = { key: SortKey; direction: SortDirection };
 type AdvancedColumnOption = {
   path: string;
@@ -111,18 +111,40 @@ function sanitizePathForTestId(path: string): string {
   return path.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function getSortValue(player: Player, key: SortKey): unknown {
+  if (key === 'name') return player.name;
+  if (key === 'team') return player.team;
+  if (key === 'position') return player.position;
+  if (key === 'ecr') return player.ecr;
+  if (key === 'proj_pts') return player.proj_pts;
+  if (key.startsWith('advanced:')) {
+    const path = key.slice('advanced:'.length);
+    return getValueAtPath(player.advancedFields, path);
+  }
+  return undefined;
+}
+
 function compareValues(a: Player, b: Player, key: SortKey, direction: SortDirection): number {
-  if (key === 'name') {
-    const result = a.name.localeCompare(b.name);
-    return direction === 'asc' ? result : -result;
+  const valueA = getSortValue(a, key);
+  const valueB = getSortValue(b, key);
+
+  const isMissingA = valueA === undefined || valueA === null || valueA === '';
+  const isMissingB = valueB === undefined || valueB === null || valueB === '';
+
+  if (isMissingA && !isMissingB) return 1;
+  if (!isMissingA && isMissingB) return -1;
+  if (isMissingA && isMissingB) return 0;
+
+  if (typeof valueA === 'number' && typeof valueB === 'number') {
+    if (valueA < valueB) return direction === 'asc' ? -1 : 1;
+    if (valueA > valueB) return direction === 'asc' ? 1 : -1;
+    return 0;
   }
 
-  const valA = key === 'ecr' ? a.ecr ?? Number.POSITIVE_INFINITY : a.proj_pts ?? Number.NEGATIVE_INFINITY;
-  const valB = key === 'ecr' ? b.ecr ?? Number.POSITIVE_INFINITY : b.proj_pts ?? Number.NEGATIVE_INFINITY;
-
-  if (valA < valB) return direction === 'asc' ? -1 : 1;
-  if (valA > valB) return direction === 'asc' ? 1 : -1;
-  return 0;
+  const textA = String(valueA).toLowerCase();
+  const textB = String(valueB).toLowerCase();
+  const result = textA.localeCompare(textB, undefined, { numeric: true, sensitivity: 'base' });
+  return direction === 'asc' ? result : -result;
 }
 
 export default function DashboardClient({ initialData }: { initialData: Player[] }) {
@@ -294,8 +316,20 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
               >
                 Player {sortConfig?.key === 'name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
               </th>
-              <th className="px-6 py-4">Team</th>
-              <th className="px-6 py-4">Position</th>
+              <th
+                className="cursor-pointer px-6 py-4 hover:bg-slate-100"
+                onClick={() => handleSort('team')}
+                data-testid="sort-team"
+              >
+                Team {sortConfig?.key === 'team' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+              </th>
+              <th
+                className="cursor-pointer px-6 py-4 hover:bg-slate-100"
+                onClick={() => handleSort('position')}
+                data-testid="sort-position"
+              >
+                Position {sortConfig?.key === 'position' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+              </th>
               <th
                 className="cursor-pointer px-6 py-4 hover:bg-slate-100"
                 onClick={() => handleSort('ecr')}
@@ -310,11 +344,20 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
               >
                 Projected Points {sortConfig?.key === 'proj_pts' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
               </th>
-              {selectedAdvancedColumns.map((path) => (
-                <th key={path} className="px-6 py-4" data-testid={`advanced-header-${sanitizePathForTestId(path)}`}>
-                  {path}
-                </th>
-              ))}
+              {selectedAdvancedColumns.map((path) => {
+                const sortKey = `advanced:${path}` as SortKey;
+                const sanitized = sanitizePathForTestId(path);
+                return (
+                  <th
+                    key={path}
+                    className="cursor-pointer px-6 py-4 hover:bg-slate-100"
+                    data-testid={`advanced-header-${sanitized}`}
+                    onClick={() => handleSort(sortKey)}
+                  >
+                    {path} {sortConfig?.key === sortKey && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">

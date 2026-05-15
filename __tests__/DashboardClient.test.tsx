@@ -113,4 +113,19 @@ describe('DashboardClient', () => {
     expect(screen.getByTestId('advanced-cell-2-injuryStatus')).toHaveTextContent('Questionable');
     expect(screen.getByTestId('advanced-cell-3-projection_points')).toHaveTextContent('24.1');
   });
+
+  it('sorts advanced columns ascending then descending', () => {
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
+    fireEvent.click(screen.getByText('customValueScore'));
+
+    fireEvent.click(screen.getByTestId('advanced-header-customValueScore'));
+    let rows = screen.getAllByTestId(/player-row-/);
+    expect(rows[0]).toHaveTextContent('Josh Allen');
+
+    fireEvent.click(screen.getByTestId('advanced-header-customValueScore'));
+    rows = screen.getAllByTestId(/player-row-/);
+    expect(rows[0]).toHaveTextContent('Christian McCaffrey');
+  });
 });
