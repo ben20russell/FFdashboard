@@ -228,6 +228,11 @@ describe('DashboardClient', () => {
 
     expect(screen.getByTestId('advanced-header-is_rookie')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-volatility')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-week_1_points')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-week_2_points')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-week_3_points')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-week_4_points')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-early_season_points')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-target_share')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-red_zone_targets')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-green_zone_touches')).toBeInTheDocument();

@@ -235,6 +235,14 @@ describe('buildFullFantasyProsModel', () => {
 
     expect(result.players).toHaveLength(1);
     expect(result.players[0]?.earlySeasonPoints).toBe(51);
+    expect(result.players[0]?.week1Points).toBe(12.5);
+    expect(result.players[0]?.week2Points).toBe(13.5);
+    expect(result.players[0]?.week3Points).toBe(14);
+    expect(result.players[0]?.week4Points).toBe(11);
     expect(result.players[0]?.raw.earlySeasonPoints).toBe(51);
+    expect(result.players[0]?.raw.week_1_points).toBe(12.5);
+    expect(result.players[0]?.raw.week_2_points).toBe(13.5);
+    expect(result.players[0]?.raw.week_3_points).toBe(14);
+    expect(result.players[0]?.raw.week_4_points).toBe(11);
   });
 });

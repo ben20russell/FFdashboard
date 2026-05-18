@@ -148,6 +148,11 @@ function parseEarlySeasonPoints(input: unknown): number | null {
   return Number.parseFloat(value.toFixed(2));
 }
 
+type EarlySeasonWeeklyPoints = {
+  total: number;
+  byWeek: Partial<Record<1 | 2 | 3 | 4, number>>;
+};
+
 function parseBooleanFlag(value: unknown): boolean | null {
   if (typeof value === 'boolean') {
     return value;
@@ -365,7 +370,7 @@ function mergeRecordsByKey(
 function buildDashboardPlayer(
   entry: { key: string; records: Partial<Record<'player' | 'ranking' | 'projection' | 'injury', FantasyProsRecord>> },
   fallbackIndex: number,
-  earlySeasonPointsByCanonicalKey: Map<string, number>,
+  earlySeasonPointsByCanonicalKey: Map<string, EarlySeasonWeeklyPoints>,
 ): DashboardPlayer {
   const playerRecord = (entry.records.player ?? {}) as PlayerInput;
   const rankingRecord = (entry.records.ranking ?? {}) as FantasyProsRankingRecord;
@@ -426,6 +431,7 @@ function buildDashboardPlayer(
       injuryRecord.bye_week ??
       injuryRecord.byeWeek,
   );
+  const weeklyProjectionPoints = earlySeasonPointsByCanonicalKey.get(entry.key);
   const earlySeasonPoints =
     parseEarlySeasonPoints(
       playerRecord.earlySeasonPoints ??
@@ -434,7 +440,19 @@ function buildDashboardPlayer(
         projectionRecord.early_season_points ??
         rankingRecord.earlySeasonPoints ??
         rankingRecord.early_season_points,
-    ) ?? parseEarlySeasonPoints(earlySeasonPointsByCanonicalKey.get(entry.key));
+    ) ?? parseEarlySeasonPoints(weeklyProjectionPoints?.total);
+  const week1Points =
+    parseEarlySeasonPoints(playerRecord.week1Points ?? playerRecord.week_1_points) ??
+    parseEarlySeasonPoints(weeklyProjectionPoints?.byWeek[1]);
+  const week2Points =
+    parseEarlySeasonPoints(playerRecord.week2Points ?? playerRecord.week_2_points) ??
+    parseEarlySeasonPoints(weeklyProjectionPoints?.byWeek[2]);
+  const week3Points =
+    parseEarlySeasonPoints(playerRecord.week3Points ?? playerRecord.week_3_points) ??
+    parseEarlySeasonPoints(weeklyProjectionPoints?.byWeek[3]);
+  const week4Points =
+    parseEarlySeasonPoints(playerRecord.week4Points ?? playerRecord.week_4_points) ??
+    parseEarlySeasonPoints(weeklyProjectionPoints?.byWeek[4]);
 
   const injuryStatus =
     (typeof injuryRecord.injury_status === 'string' && injuryRecord.injury_status) ||
@@ -463,6 +481,10 @@ function buildDashboardPlayer(
     isRookie,
     projectedPoints,
     earlySeasonPoints,
+    week1Points,
+    week2Points,
+    week3Points,
+    week4Points,
     adp,
     overallRank,
     injuryStatus,
@@ -478,6 +500,14 @@ function buildDashboardPlayer(
       worst: worst ?? undefined,
       earlySeasonPoints: earlySeasonPoints ?? undefined,
       early_season_points: earlySeasonPoints ?? undefined,
+      week1Points: week1Points ?? undefined,
+      week2Points: week2Points ?? undefined,
+      week3Points: week3Points ?? undefined,
+      week4Points: week4Points ?? undefined,
+      week_1_points: week1Points ?? undefined,
+      week_2_points: week2Points ?? undefined,
+      week_3_points: week3Points ?? undefined,
+      week_4_points: week4Points ?? undefined,
       bye_week: byeWeek ?? undefined,
       byeWeek: byeWeek ?? undefined,
       valueProjection,
@@ -491,10 +521,16 @@ function buildDashboardPlayer(
 function aggregateEarlySeasonPointsByCanonicalKey(
   weeklyProjections: FantasyProsProjectionRecord[][],
   aliasToCanonicalKeyMap: Map<string, string>,
-): Map<string, number> {
-  const earlySeasonPointsByCanonicalKey = new Map<string, number>();
+): Map<string, EarlySeasonWeeklyPoints> {
+  const earlySeasonPointsByCanonicalKey = new Map<string, EarlySeasonWeeklyPoints>();
 
-  for (const weeklyProjectionSet of weeklyProjections) {
+  for (let weeklyIndex = 0; weeklyIndex < weeklyProjections.length; weeklyIndex += 1) {
+    const weeklyProjectionSet = weeklyProjections[weeklyIndex];
+    const projectionWeek = weeklyIndex + 1;
+    if (projectionWeek < 1 || projectionWeek > 4) {
+      continue;
+    }
+
     for (const record of weeklyProjectionSet) {
       const aliases = createAliases(record);
       if (aliases.length === 0) {
@@ -513,8 +549,17 @@ function aggregateEarlySeasonPointsByCanonicalKey(
         continue;
       }
 
-      const nextPointsTotal = (earlySeasonPointsByCanonicalKey.get(canonicalKey) ?? 0) + weeklyPoints;
-      earlySeasonPointsByCanonicalKey.set(canonicalKey, Number.parseFloat(nextPointsTotal.toFixed(2)));
+      const existingPoints = earlySeasonPointsByCanonicalKey.get(canonicalKey) ?? { total: 0, byWeek: {} };
+      const nextPointsTotal = existingPoints.total + weeklyPoints;
+      const nextByWeek = {
+        ...existingPoints.byWeek,
+        [projectionWeek]: Number.parseFloat(weeklyPoints.toFixed(2)),
+      } satisfies Partial<Record<1 | 2 | 3 | 4, number>>;
+
+      earlySeasonPointsByCanonicalKey.set(canonicalKey, {
+        total: Number.parseFloat(nextPointsTotal.toFixed(2)),
+        byWeek: nextByWeek,
+      });
     }
   }
 

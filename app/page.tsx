@@ -14,6 +14,10 @@ type DashboardTablePlayer = {
   adp?: number;
   proj_pts?: number;
   earlySeasonPoints?: number;
+  week1Points?: number;
+  week2Points?: number;
+  week3Points?: number;
+  week4Points?: number;
   byeWeek?: number;
   stdDev?: number;
   best?: number;
@@ -44,6 +48,10 @@ function mapToDashboardTablePlayers(players: Awaited<ReturnType<typeof getFantas
     adp: player.adp ?? undefined,
     proj_pts: player.projectedPoints,
     earlySeasonPoints: player.earlySeasonPoints ?? undefined,
+    week1Points: player.week1Points ?? undefined,
+    week2Points: player.week2Points ?? undefined,
+    week3Points: player.week3Points ?? undefined,
+    week4Points: player.week4Points ?? undefined,
     byeWeek: player.byeWeek ?? undefined,
     stdDev: player.stdDev ?? undefined,
     best: player.best ?? undefined,
@@ -55,6 +63,14 @@ function mapToDashboardTablePlayers(players: Awaited<ReturnType<typeof getFantas
       adp: player.adp,
       earlySeasonPoints: player.earlySeasonPoints,
       early_season_points: player.earlySeasonPoints,
+      week1Points: player.week1Points,
+      week2Points: player.week2Points,
+      week3Points: player.week3Points,
+      week4Points: player.week4Points,
+      week_1_points: player.week1Points,
+      week_2_points: player.week2Points,
+      week_3_points: player.week3Points,
+      week_4_points: player.week4Points,
       bye_week: player.byeWeek,
       byeWeek: player.byeWeek,
       std_dev: player.stdDev,

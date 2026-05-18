@@ -168,6 +168,10 @@ const STAT_PATHS = {
     'projection.earlySeasonPoints',
     'projection.early_season_points',
   ],
+  week1Points: ['week1Points', 'week_1_points', 'projection.week1Points', 'projection.week_1_points'],
+  week2Points: ['week2Points', 'week_2_points', 'projection.week2Points', 'projection.week_2_points'],
+  week3Points: ['week3Points', 'week_3_points', 'projection.week3Points', 'projection.week_3_points'],
+  week4Points: ['week4Points', 'week_4_points', 'projection.week4Points', 'projection.week_4_points'],
 } as const;
 
 const HIGH_LEVERAGE_USAGE_MULTIPLIER = 1.08;
@@ -199,6 +203,11 @@ const BASE_UPSIDE_PROBABILITY: Record<DraftablePosition, number> = {
 const SYNTHETIC_ADVANCED_COLUMN_PATHS = [
   'is_rookie',
   'volatility',
+  'week_1_points',
+  'week_2_points',
+  'week_3_points',
+  'week_4_points',
+  'early_season_points',
   'target_share',
   'red_zone_targets',
   'green_zone_touches',
@@ -544,6 +553,11 @@ function getAdvancedColumnLabel(path: string): string {
   if (path === 'volatility') {
     return 'Volatility';
   }
+  if (path === 'week_1_points') return 'Week 1 Points';
+  if (path === 'week_2_points') return 'Week 2 Points';
+  if (path === 'week_3_points') return 'Week 3 Points';
+  if (path === 'week_4_points') return 'Week 4 Points';
+  if (path === 'early_season_points') return 'Early Season Points';
 
   return path;
 }

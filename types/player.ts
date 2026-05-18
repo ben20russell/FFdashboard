@@ -12,6 +12,14 @@ export type PlayerInput = {
   avg_adp?: number | string;
   earlySeasonPoints?: number | string;
   early_season_points?: number | string;
+  week1Points?: number | string;
+  week2Points?: number | string;
+  week3Points?: number | string;
+  week4Points?: number | string;
+  week_1_points?: number | string;
+  week_2_points?: number | string;
+  week_3_points?: number | string;
+  week_4_points?: number | string;
   bye_week?: number | string;
   byeWeek?: number | string;
   std_dev?: number | string;
@@ -27,6 +35,10 @@ export type DashboardPlayer = {
   isRookie: boolean;
   projectedPoints: number;
   earlySeasonPoints: number | null;
+  week1Points: number | null;
+  week2Points: number | null;
+  week3Points: number | null;
+  week4Points: number | null;
   adp: number | null;
   customValueScore: number;
   overallRank: number | null;

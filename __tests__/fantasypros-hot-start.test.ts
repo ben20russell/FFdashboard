@@ -94,5 +94,9 @@ describe('fantasypros hot-start aggregation', () => {
     expect(projectionsMock).toHaveBeenCalledTimes(5);
     expect(projectionWeeksQueried).toEqual([1, 2, 3, 4]);
     expect(result.players[0]?.earlySeasonPoints).toBe(50);
+    expect(result.players[0]?.week1Points).toBe(10.5);
+    expect(result.players[0]?.week2Points).toBe(12);
+    expect(result.players[0]?.week3Points).toBe(13.5);
+    expect(result.players[0]?.week4Points).toBe(14);
   });
 });
