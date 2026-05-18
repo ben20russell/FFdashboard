@@ -200,21 +200,30 @@ const BASE_UPSIDE_PROBABILITY: Record<DraftablePosition, number> = {
   WR: 37,
   TE: 30,
 };
-const SYNTHETIC_ADVANCED_COLUMN_PATHS = [
-  'is_rookie',
-  'volatility',
+const DEFAULT_VISIBLE_ADVANCED_COLUMNS = [
+  // Hot-start signals used by draft-score bonus.
   'week_1_points',
   'week_2_points',
   'week_3_points',
   'week_4_points',
   'early_season_points',
+  // Variance/upside signals used by ranking logic in later rounds.
+  'volatility',
+  // Usage + efficiency signals used by projection and breakout logic.
   'target_share',
-  'red_zone_targets',
-  'green_zone_touches',
   'green_zone_touches_per_game',
   'targets_per_route_run',
   'yprr',
 ] as const;
+
+const SYNTHETIC_ADVANCED_COLUMN_PATHS = [
+  ...DEFAULT_VISIBLE_ADVANCED_COLUMNS,
+  // Keep these discoverable in the dropdown even if not visible by default.
+  'is_rookie',
+  'red_zone_targets',
+  'green_zone_touches',
+] as const;
+const ALWAYS_VISIBLE_ADVANCED_COLUMN_SET = new Set<string>(DEFAULT_VISIBLE_ADVANCED_COLUMNS);
 
 function isDraftablePosition(position: string): position is DraftablePosition {
   return position === 'QB' || position === 'RB' || position === 'WR' || position === 'TE';
@@ -866,12 +875,18 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
   const [positionFilter, setPositionFilter] = useState<PositionFilter>('ALL');
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
   const [showAdvancedColumns, setShowAdvancedColumns] = useState(false);
-  const [selectedAdvancedColumns, setSelectedAdvancedColumns] = useState<string[]>([
-    ...SYNTHETIC_ADVANCED_COLUMN_PATHS,
-  ]);
+  const [selectedAdvancedColumns, setSelectedAdvancedColumns] = useState<string[]>([]);
   const [draftPosition, setDraftPosition] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<DraftTab>('player-rankings');
   const [draftMode, setDraftMode] = useState<DraftMode>('safe-floor');
+
+  const visibleAdvancedColumns = useMemo<string[]>(
+    () => [
+      ...DEFAULT_VISIBLE_ADVANCED_COLUMNS,
+      ...selectedAdvancedColumns.filter((path) => !ALWAYS_VISIBLE_ADVANCED_COLUMN_SET.has(path)),
+    ],
+    [selectedAdvancedColumns],
+  );
 
   const lastRefreshLabel = useMemo(() => {
     if (!lastRefreshIso) {
@@ -966,6 +981,11 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
   };
 
   const handleAdvancedColumnToggle = (path: string) => {
+    if (ALWAYS_VISIBLE_ADVANCED_COLUMN_SET.has(path)) {
+      console.log('[DashboardClient] advanced column is locked and always visible', { path });
+      return;
+    }
+
     setSelectedAdvancedColumns((previous) => {
       if (previous.includes(path)) {
         console.log('[DashboardClient] advanced column removed', { path });
@@ -1600,7 +1620,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
             setShowAdvancedColumns(nextValue);
           }}
         >
-          Advanced Columns ({selectedAdvancedColumns.length})
+          Advanced Columns ({visibleAdvancedColumns.length})
         </button>
 
         {showAdvancedColumns ? (
@@ -1615,10 +1635,18 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
                   <input
                     id={`advanced-column-${option.path}`}
                     type="checkbox"
-                    checked={selectedAdvancedColumns.includes(option.path)}
+                    checked={
+                      ALWAYS_VISIBLE_ADVANCED_COLUMN_SET.has(option.path) || selectedAdvancedColumns.includes(option.path)
+                    }
+                    disabled={ALWAYS_VISIBLE_ADVANCED_COLUMN_SET.has(option.path)}
                     onChange={() => handleAdvancedColumnToggle(option.path)}
                   />
                   <span>{option.path}</span>
+                  {ALWAYS_VISIBLE_ADVANCED_COLUMN_SET.has(option.path) ? (
+                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                      Core
+                    </span>
+                  ) : null}
                   <span className="ml-auto text-slate-400">{option.valueCount}</span>
                 </label>
               ))
@@ -1668,7 +1696,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
               >
                 Projected Points {sortConfig?.key === 'proj_pts' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
               </th>
-              {selectedAdvancedColumns.map((path) => {
+              {visibleAdvancedColumns.map((path) => {
                 const sortKey = `advanced:${path}` as SortKey;
                 const sanitized = sanitizePathForTestId(path);
                 return (
@@ -1715,7 +1743,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
                   <td className="px-6 py-4 font-mono font-semibold text-indigo-600">
                     {typeof player.proj_pts === 'number' ? player.proj_pts.toFixed(1) : '-'}
                   </td>
-                  {selectedAdvancedColumns.map((path) => {
+                  {visibleAdvancedColumns.map((path) => {
                     const displayValue = formatAdvancedValue(getValueAtPath(player.advancedFields, path));
                     return (
                       <td
@@ -1732,7 +1760,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
             ) : (
               <tr>
                 <td
-                  colSpan={5 + selectedAdvancedColumns.length}
+                  colSpan={5 + visibleAdvancedColumns.length}
                   className="px-6 py-12 text-center text-slate-500"
                   data-testid="dashboard-empty-state"
                 >

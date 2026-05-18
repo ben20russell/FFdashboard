@@ -200,7 +200,7 @@ describe('DashboardClient', () => {
     expect(screen.getByTestId('advanced-cell-m1-yprr')).toHaveTextContent('2.4');
   });
 
-  it('surfaces all newer synthetic advanced metrics in the dropdown', () => {
+  it('keeps core draft-model metrics always visible and exposes others in the dropdown', () => {
     const syntheticMetricPlayers = [
       {
         id: 's1',
@@ -226,7 +226,6 @@ describe('DashboardClient', () => {
 
     render(<DashboardClient initialData={syntheticMetricPlayers} />);
 
-    expect(screen.getByTestId('advanced-header-is_rookie')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-volatility')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-week_1_points')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-week_2_points')).toBeInTheDocument();
@@ -234,11 +233,18 @@ describe('DashboardClient', () => {
     expect(screen.getByTestId('advanced-header-week_4_points')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-early_season_points')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-target_share')).toBeInTheDocument();
-    expect(screen.getByTestId('advanced-header-red_zone_targets')).toBeInTheDocument();
-    expect(screen.getByTestId('advanced-header-green_zone_touches')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-green_zone_touches_per_game')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-targets_per_route_run')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-yprr')).toBeInTheDocument();
+
+    expect(screen.queryByTestId('advanced-header-is_rookie')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('advanced-header-red_zone_targets')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('advanced-header-green_zone_touches')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
+    expect(screen.getByText('is_rookie')).toBeInTheDocument();
+    expect(screen.getByText('red_zone_targets')).toBeInTheDocument();
+    expect(screen.getByText('green_zone_touches')).toBeInTheDocument();
   });
 
   it('renders Volatility advanced column using std_dev data', () => {
