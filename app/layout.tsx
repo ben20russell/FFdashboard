@@ -4,6 +4,11 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Fantasy Football Model Dashboard',
   description: 'Fantasy Football analytics dashboard and predictive model starter',
+  icons: {
+    icon: '/football.svg',
+    shortcut: '/football.svg',
+    apple: '/football.svg',
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import DashboardClient from '@/app/DashboardClient';
+import DashboardClient, { computeLeagueAdjustedProjection } from '@/app/DashboardClient';
 
 const players = [
   {
@@ -38,6 +38,7 @@ describe('DashboardClient', () => {
   it('renders rows from initial data', () => {
     render(<DashboardClient initialData={players} />);
 
+    expect(screen.getByTestId('tab-player-rankings')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('player-row-1')).toBeInTheDocument();
     expect(screen.getByText('Christian McCaffrey')).toBeInTheDocument();
     expect(screen.getByText('Josh Allen')).toBeInTheDocument();
@@ -127,5 +128,69 @@ describe('DashboardClient', () => {
     fireEvent.click(screen.getByTestId('advanced-header-customValueScore'));
     rows = screen.getAllByTestId(/player-row-/);
     expect(rows[0]).toHaveTextContent('Christian McCaffrey');
+  });
+
+  it('renders a 12-team draft board with 12 rounds', () => {
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-root')).toBeInTheDocument();
+    expect(screen.getAllByTestId(/draft-board-row-/)).toHaveLength(12);
+    expect(screen.getByTestId('draft-board-pick-1')).toHaveTextContent('1');
+    expect(screen.getByTestId('draft-board-pick-2')).toHaveTextContent('24');
+    expect(screen.getByText('Likely Pick')).toBeInTheDocument();
+    expect(screen.getByTestId('draft-board-likely-1')).toHaveTextContent('Josh Allen (QB)');
+  });
+
+  it('recomputes snake picks when draft position changes', () => {
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+    fireEvent.change(screen.getByTestId('draft-position-select'), { target: { value: '12' } });
+
+    expect(screen.getByTestId('draft-board-pick-1')).toHaveTextContent('12');
+    expect(screen.getByTestId('draft-board-pick-2')).toHaveTextContent('13');
+  });
+
+  it('switches between draft board and player rankings tabs', () => {
+    render(<DashboardClient initialData={players} />);
+
+    expect(screen.getByTestId('players-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-board-root')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+    expect(screen.getByTestId('draft-board-root')).toBeInTheDocument();
+    expect(screen.queryByTestId('players-table')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('tab-player-rankings'));
+    expect(screen.getByTestId('players-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-board-root')).not.toBeInTheDocument();
+  });
+
+  it('uses league scoring settings when projection stat details are available', () => {
+    const result = computeLeagueAdjustedProjection({
+      id: 'qb-league-adjusted',
+      name: 'League QB',
+      team: 'BUF',
+      position: 'QB',
+      ecr: 10,
+      proj_pts: 10,
+      advancedFields: {
+        projection: {
+          stats: [
+            {
+              pass_yds: 300,
+              pass_td: 3,
+              interceptions: 1,
+              rush_yds: 20,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.usedDetailedStats).toBe(true);
+    expect(result.points).toBe(29);
   });
 });

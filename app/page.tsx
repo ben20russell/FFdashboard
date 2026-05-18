@@ -1,6 +1,7 @@
+import React from 'react';
+import Image from 'next/image';
 import DashboardClient from './DashboardClient';
 import { DashboardErrorBoundary } from '@/components/DashboardErrorBoundary';
-import { RawApiOutput } from '@/components/RawApiOutput';
 import { getFantasyProsPlayers } from '@/lib/fantasypros';
 
 type DashboardTablePlayer = {
@@ -58,7 +59,17 @@ export default async function Page() {
     <main className="min-h-screen bg-slate-50 p-6 font-sans text-slate-900 md:p-12" data-testid="dashboard-page">
       <div className="mx-auto max-w-7xl" data-testid="dashboard-container">
         <header className="mb-8" data-testid="dashboard-header">
-          <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-slate-900">NFL Fantasy Intelligence</h1>
+          <div className="mb-2 flex items-center gap-3">
+            <Image
+              src="/football.svg"
+              alt="Football logo"
+              width={36}
+              height={36}
+              priority
+              data-testid="dashboard-logo"
+            />
+            <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">NFL Fantasy Intelligence</h1>
+          </div>
           <p className="text-lg text-slate-500">
             Full-model view combining players, rankings, projections, and injuries.
           </p>
@@ -72,10 +83,6 @@ export default async function Page() {
         <DashboardErrorBoundary>
           <DashboardClient initialData={players} />
         </DashboardErrorBoundary>
-
-        <div className="mt-8">
-          <RawApiOutput payload={result.rawPayload} />
-        </div>
       </div>
     </main>
   );

@@ -14,6 +14,10 @@ import type {
 } from '@/types/fantasypros';
 import type { DashboardPlayer, PlayerInput } from '@/types/player';
 
+function isKickerPosition(position: string): boolean {
+  return position.trim().toUpperCase() === 'K';
+}
+
 function parseFloatSafe(value: unknown): number {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : 0;
@@ -309,6 +313,10 @@ export function buildFullFantasyProsModel(input: {
   const mergedEntries = Array.from(entityMap.values());
   const mergedPlayers = mergedEntries.map((entry, index) => buildDashboardPlayer(entry, index));
   const players = mergedPlayers.filter((player, index) => {
+    if (isKickerPosition(player.position)) {
+      return false;
+    }
+
     const entry = mergedEntries[index];
     const hasBasePlayerRecord = Boolean(entry?.records.player);
 

@@ -98,4 +98,15 @@ describe('buildFullFantasyProsModel', () => {
     expect(result.players).toHaveLength(2);
     expect(result.players.map((player) => player.position).sort()).toEqual(['RB', 'WR']);
   });
+
+  it('removes kickers from merged model output', () => {
+    const result = buildFullFantasyProsModel({
+      players: [{ id: 91, player_name: 'Kicker Player', position_id: 'K', team_id: 'BUF' }],
+      rankings: [{ id: 91, player_name: 'Kicker Player', position_id: 'K', rank_ecr: '120' }],
+      projections: [{ id: 91, player_name: 'Kicker Player', position_id: 'K', projected_points: '8.2' }],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(0);
+  });
 });
