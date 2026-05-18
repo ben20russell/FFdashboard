@@ -49,13 +49,14 @@ describe('buildFullFantasyProsModel', () => {
   it('parses nested ranking/projection payload shapes from official endpoints', () => {
     const result = buildFullFantasyProsModel({
       players: [{ id: 7354, player_name: 'Saquon Barkley', position_id: 'RB', team_id: 'PHI' }],
-      rankings: [{ id: 7354, player_name: 'Saquon Barkley', rank_ecr: '2', position_id: 'RB' }],
+      rankings: [{ id: 7354, player_name: 'Saquon Barkley', rank_ecr: '2', position_id: 'RB', adp: '7.4' }],
       projections: [{ id: 7354, player_name: 'Saquon Barkley', position_id: 'RB', stats: [{ points: '18.4' }] }],
       injuries: [],
     });
 
     expect(result.players).toHaveLength(1);
     expect(result.players[0]?.overallRank).toBe(2);
+    expect(result.players[0]?.adp).toBe(7.4);
     expect(result.players[0]?.projectedPoints).toBe(18.4);
     expect(result.players[0]?.position).toBe('RB');
   });
@@ -108,5 +109,55 @@ describe('buildFullFantasyProsModel', () => {
     });
 
     expect(result.players).toHaveLength(0);
+  });
+
+  it('scales pass-catcher projections down when team receiving yards exceed team passing pie baseline', () => {
+    const result = buildFullFantasyProsModel({
+      players: [],
+      rankings: [],
+      projections: [
+        {
+          id: 201,
+          player_name: 'Alpha WR',
+          position_id: 'WR',
+          team_id: 'KC',
+          projected_points: '30',
+          stats: [{ rec_yds: '3000' }],
+        },
+        {
+          id: 202,
+          player_name: 'Beta TE',
+          position_id: 'TE',
+          team_id: 'KC',
+          projected_points: '20',
+          stats: [{ rec_yds: '3000' }],
+        },
+      ],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(2);
+
+    const alpha = result.players.find((player) => player.name === 'Alpha WR');
+    const beta = result.players.find((player) => player.name === 'Beta TE');
+
+    expect(alpha?.projectedPoints).toBe(22.25);
+    expect(beta?.projectedPoints).toBe(14.83);
+    expect(alpha?.raw.teamPieScaling).toMatchObject({
+      team: 'KC',
+      teamPassingBaseline: 4450,
+    });
+  });
+
+  it('maps rookie flag from merged source records', () => {
+    const result = buildFullFantasyProsModel({
+      players: [{ id: 301, player_name: 'Rookie Runner', position_id: 'RB', is_rookie: true }],
+      rankings: [],
+      projections: [{ id: 301, projected_points: '11.2' }],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(1);
+    expect(result.players[0]?.isRookie).toBe(true);
   });
 });

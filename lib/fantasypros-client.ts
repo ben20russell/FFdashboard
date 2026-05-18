@@ -19,6 +19,7 @@ type FetchCollectionOptions = {
   resource: Exclude<FantasyProsCollectionKey, 'data'>;
   preferredKey: FantasyProsCollectionKey;
   query?: FantasyProsQueryParams;
+  forceFresh?: boolean;
 };
 
 type BuildEndpointOptions = {
@@ -166,12 +167,13 @@ export async function fetchFantasyProsCollection<TItem extends FantasyProsRecord
     resource: options.resource,
     query: options.query,
   });
-  return fetchFantasyProsCollectionByEndpoint<TItem>(endpoint, options.preferredKey);
+  return fetchFantasyProsCollectionByEndpoint<TItem>(endpoint, options.preferredKey, options.forceFresh);
 }
 
 async function fetchFantasyProsCollectionByEndpoint<TItem extends FantasyProsRecord>(
   endpoint: string,
   preferredKey: FantasyProsCollectionKey,
+  forceFresh = false,
 ): Promise<FantasyProsFetchResult<TItem>> {
   const apiKey = process.env.FANTASYPROS_API_KEY;
   const fetchedAtIso = new Date().toISOString();
@@ -181,6 +183,7 @@ async function fetchFantasyProsCollectionByEndpoint<TItem extends FantasyProsRec
     preferredKey,
     hasApiKey: Boolean(apiKey),
     revalidateSeconds: DEFAULT_REVALIDATE_SECONDS,
+    forceFresh,
   });
 
   if (!apiKey) {
@@ -203,9 +206,13 @@ async function fetchFantasyProsCollectionByEndpoint<TItem extends FantasyProsRec
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
       },
-      next: {
-        revalidate: DEFAULT_REVALIDATE_SECONDS,
-      },
+      ...(forceFresh
+        ? { cache: 'no-store' as RequestCache }
+        : {
+            next: {
+              revalidate: DEFAULT_REVALIDATE_SECONDS,
+            },
+          }),
     });
 
     console.log('[fetchFantasyProsCollection] Response metadata', {
@@ -269,15 +276,16 @@ async function fetchFantasyProsCollectionByEndpoint<TItem extends FantasyProsRec
   }
 }
 
-export async function getFantasyProsPlayers(query?: FantasyProsQueryParams) {
+export async function getFantasyProsPlayers(query?: FantasyProsQueryParams, options?: { forceFresh?: boolean }) {
   return fetchFantasyProsCollection<PlayerInput>({
     resource: 'players',
     preferredKey: 'players',
     query,
+    forceFresh: options?.forceFresh,
   });
 }
 
-export async function getFantasyProsRankings(query?: FantasyProsQueryParams) {
+export async function getFantasyProsRankings(query?: FantasyProsQueryParams, options?: { forceFresh?: boolean }) {
   const sport = getConfiguredSport();
   const configuredSeason = getConfiguredSeason();
   const seasonsToTry = [configuredSeason, configuredSeason - 1];
@@ -290,7 +298,11 @@ export async function getFantasyProsRankings(query?: FantasyProsQueryParams) {
       query,
     });
 
-    const result = await fetchFantasyProsCollectionByEndpoint<FantasyProsRankingRecord>(endpoint, 'players');
+    const result = await fetchFantasyProsCollectionByEndpoint<FantasyProsRankingRecord>(
+      endpoint,
+      'players',
+      options?.forceFresh,
+    );
     if (result.items.length > 0 || !result.errorMessage) {
       return result;
     }
@@ -304,10 +316,11 @@ export async function getFantasyProsRankings(query?: FantasyProsQueryParams) {
       query,
     }),
     'players',
+    options?.forceFresh,
   );
 }
 
-export async function getFantasyProsProjections(query?: FantasyProsQueryParams) {
+export async function getFantasyProsProjections(query?: FantasyProsQueryParams, options?: { forceFresh?: boolean }) {
   const configuredSeason = getConfiguredSeason();
   const seasonsToTry = [configuredSeason, configuredSeason - 1];
 
@@ -317,7 +330,11 @@ export async function getFantasyProsProjections(query?: FantasyProsQueryParams) 
       query,
     });
 
-    const result = await fetchFantasyProsCollectionByEndpoint<FantasyProsProjectionRecord>(endpoint, 'players');
+    const result = await fetchFantasyProsCollectionByEndpoint<FantasyProsProjectionRecord>(
+      endpoint,
+      'players',
+      options?.forceFresh,
+    );
     if (result.items.length > 0 || !result.errorMessage) {
       return result;
     }
@@ -329,13 +346,15 @@ export async function getFantasyProsProjections(query?: FantasyProsQueryParams) 
       query,
     }),
     'players',
+    options?.forceFresh,
   );
 }
 
-export async function getFantasyProsInjuries(query?: FantasyProsQueryParams) {
+export async function getFantasyProsInjuries(query?: FantasyProsQueryParams, options?: { forceFresh?: boolean }) {
   return fetchFantasyProsCollection<FantasyProsInjuryRecord>({
     resource: 'injuries',
     preferredKey: 'injuries',
     query,
+    forceFresh: options?.forceFresh,
   });
 }

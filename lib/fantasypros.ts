@@ -4,7 +4,13 @@ import {
   getFantasyProsProjections,
   getFantasyProsRankings,
 } from '@/lib/fantasypros-client';
-import { calculatePlayerValue } from '@/lib/model';
+import {
+  calculatePlayerValue,
+  getProjectedReceivingYards,
+  getTeamProjectionBaseline,
+  isPassCatcherPosition,
+  normalizeTeamAbbreviation,
+} from '@/lib/model';
 import type {
   FantasyProsInjuryRecord,
   FantasyProsProjectionRecord,
@@ -82,6 +88,68 @@ function parseRank(input: unknown): number | null {
   }
 
   return Math.round(rank);
+}
+
+function parseAdp(input: unknown): number | null {
+  const adp = parseFloatSafe(input);
+  if (!Number.isFinite(adp) || adp <= 0) {
+    return null;
+  }
+
+  return Number.parseFloat(adp.toFixed(1));
+}
+
+function parseBooleanFlag(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', 'yes', 'y', '1', 'rookie'].includes(normalized)) return true;
+    if (['false', 'no', 'n', '0', 'veteran'].includes(normalized)) return false;
+  }
+
+  return null;
+}
+
+function parseIsRookie(...records: Array<Partial<FantasyProsRecord> | undefined>): boolean {
+  for (const record of records) {
+    if (!record) {
+      continue;
+    }
+
+    const recordValue =
+      parseBooleanFlag(record.isRookie) ??
+      parseBooleanFlag(record.is_rookie) ??
+      parseBooleanFlag(record.rookie) ??
+      parseBooleanFlag(record.is_rookie_year) ??
+      parseBooleanFlag(record.rookie_year) ??
+      parseBooleanFlag(record.first_year_player);
+
+    if (recordValue !== null) {
+      return recordValue;
+    }
+
+    const experience =
+      record.years_exp ??
+      record.yearsExperience ??
+      record.experience ??
+      record.exp ??
+      record.nfl_exp ??
+      record.season_experience;
+    const parsedExperience = parseFloatSafe(experience);
+    if (Number.isFinite(parsedExperience) && parsedExperience >= 0) {
+      return parsedExperience === 0;
+    }
+  }
+
+  return false;
 }
 
 function normalizeName(record: Partial<FantasyProsRecord>): string {
@@ -262,35 +330,156 @@ function buildDashboardPlayer(
       rankingRecord.ecr ??
       rankingRecord.position_rank,
   );
+  const adp = parseAdp(
+    rankingRecord.adp ??
+      rankingRecord.avg_adp ??
+      rankingRecord.rank_avg ??
+      projectionRecord.adp ??
+      projectionRecord.avg_adp ??
+      playerRecord.adp ??
+      playerRecord.avg_adp,
+  );
 
   const injuryStatus =
     (typeof injuryRecord.injury_status === 'string' && injuryRecord.injury_status) ||
     (typeof injuryRecord.status === 'string' && injuryRecord.status) ||
     null;
+  const isRookie = parseIsRookie(playerRecord, rankingRecord, projectionRecord, injuryRecord);
 
   const modelInput = {
     ...playerRecord,
     ...projectionRecord,
     name,
     position,
+    isRookie,
     projected_points: projectedPoints,
   };
+
+  const valueProjection = calculatePlayerValue(modelInput);
 
   return {
     id: String(playerRecord.id ?? projectionRecord.id ?? rankingRecord.id ?? injuryRecord.id ?? entry.key),
     name,
     position,
+    isRookie,
     projectedPoints,
+    adp,
     overallRank,
     injuryStatus,
-    customValueScore: calculatePlayerValue(modelInput),
+    customValueScore: valueProjection.median,
     raw: {
       ...playerRecord,
+      valueProjection,
       projection: projectionRecord,
       ranking: rankingRecord,
       injury: injuryRecord,
     },
   };
+}
+
+function getTeamFromEntry(
+  entry: { key: string; records: Partial<Record<'player' | 'ranking' | 'projection' | 'injury', FantasyProsRecord>> },
+): string | null {
+  const sources = [entry.records.player, entry.records.projection, entry.records.ranking, entry.records.injury];
+
+  for (const source of sources) {
+    const normalizedTeam = normalizeTeamAbbreviation(
+      source?.team_id ?? source?.team ?? source?.team_abbr ?? source?.team_abbreviation,
+    );
+
+    if (normalizedTeam) {
+      return normalizedTeam;
+    }
+  }
+
+  return null;
+}
+
+function applyTeamPieScaling(
+  players: DashboardPlayer[],
+  mergedEntries: Array<{
+    key: string;
+    records: Partial<Record<'player' | 'ranking' | 'projection' | 'injury', FantasyProsRecord>>;
+  }>,
+) {
+  const teamBuckets = new Map<
+    string,
+    Array<{
+      player: DashboardPlayer;
+      receivingYards: number;
+    }>
+  >();
+
+  players.forEach((player, index) => {
+    if (!isPassCatcherPosition(player.position)) {
+      return;
+    }
+
+    const entry = mergedEntries[index];
+    if (!entry) {
+      return;
+    }
+
+    const team = getTeamFromEntry(entry);
+    if (!team) {
+      return;
+    }
+
+    const receivingYards = getProjectedReceivingYards({
+      ...(entry.records.player ?? {}),
+      ...(entry.records.projection ?? {}),
+    } as PlayerInput);
+
+    if (receivingYards <= 0) {
+      return;
+    }
+
+    const current = teamBuckets.get(team) ?? [];
+    current.push({ player, receivingYards });
+    teamBuckets.set(team, current);
+  });
+
+  for (const [team, passCatchers] of teamBuckets.entries()) {
+    const totalReceivingYards = passCatchers.reduce((sum, passCatcher) => sum + passCatcher.receivingYards, 0);
+    const teamBaseline = getTeamProjectionBaseline(team);
+
+    if (totalReceivingYards <= 0 || totalReceivingYards <= teamBaseline.passingYards) {
+      continue;
+    }
+
+    const scaleFactor = teamBaseline.passingYards / totalReceivingYards;
+
+    for (const passCatcher of passCatchers) {
+      const scaledProjectedPoints = Number.parseFloat((passCatcher.player.projectedPoints * scaleFactor).toFixed(2));
+      passCatcher.player.projectedPoints = scaledProjectedPoints;
+
+      const valueProjection = calculatePlayerValue({
+        ...passCatcher.player.raw,
+        name: passCatcher.player.name,
+        position: passCatcher.player.position,
+        projected_points: scaledProjectedPoints,
+      });
+      passCatcher.player.customValueScore = valueProjection.median;
+      passCatcher.player.raw = {
+        ...passCatcher.player.raw,
+        valueProjection,
+        teamPieScaling: {
+          team,
+          totalReceivingYards: Number.parseFloat(totalReceivingYards.toFixed(1)),
+          teamPassingBaseline: teamBaseline.passingYards,
+          scaleFactor: Number.parseFloat(scaleFactor.toFixed(4)),
+        },
+      };
+    }
+
+    console.log('[buildFullFantasyProsModel] Applied team pie scaling', {
+      team,
+      passCatchersScaled: passCatchers.length,
+      totalReceivingYards: Number.parseFloat(totalReceivingYards.toFixed(1)),
+      teamPassingBaseline: teamBaseline.passingYards,
+      scaleFactor: Number.parseFloat(scaleFactor.toFixed(4)),
+    });
+  }
 }
 
 export function buildFullFantasyProsModel(input: {
@@ -312,6 +501,7 @@ export function buildFullFantasyProsModel(input: {
 
   const mergedEntries = Array.from(entityMap.values());
   const mergedPlayers = mergedEntries.map((entry, index) => buildDashboardPlayer(entry, index));
+  applyTeamPieScaling(mergedPlayers, mergedEntries);
   const players = mergedPlayers.filter((player, index) => {
     if (isKickerPosition(player.position)) {
       return false;
@@ -342,7 +532,7 @@ export type FantasyProsResult = {
   errorMessage: string | null;
 };
 
-export async function getFantasyProsPlayers(): Promise<FantasyProsResult> {
+export async function getFantasyProsPlayers(options?: { forceRefresh?: boolean }): Promise<FantasyProsResult> {
   const weekQuery = getWeekQueryFromEnv();
   const scoringQuery = getScoringQueryFromEnv();
   const rankingsAndProjectionsQuery = { ...weekQuery, ...scoringQuery };
@@ -350,18 +540,19 @@ export async function getFantasyProsPlayers(): Promise<FantasyProsResult> {
   console.log('[getFantasyProsPlayers] Fetching full-model sources', {
     weekQuery,
     scoringQuery,
+    forceRefresh: Boolean(options?.forceRefresh),
   });
 
   const [playersResult, rankingsResult, projectionsResult, injuriesResult] = await Promise.all([
     getFantasyProsPlayersFromApi({
       ecr: 'included',
       show: 'pos_rank',
-    }),
-    getFantasyProsRankings(rankingsAndProjectionsQuery),
+    }, { forceFresh: options?.forceRefresh }),
+    getFantasyProsRankings(rankingsAndProjectionsQuery, { forceFresh: options?.forceRefresh }),
     getFantasyProsProjections({
       ...rankingsAndProjectionsQuery,
-    }),
-    getFantasyProsInjuries(weekQuery),
+    }, { forceFresh: options?.forceRefresh }),
+    getFantasyProsInjuries(weekQuery, { forceFresh: options?.forceRefresh }),
   ]);
 
   const model = buildFullFantasyProsModel({

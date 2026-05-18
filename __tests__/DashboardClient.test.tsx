@@ -1,8 +1,13 @@
 import React from 'react';
-import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import DashboardClient, { computeLeagueAdjustedProjection } from '@/app/DashboardClient';
+import DashboardClient, {
+  assignPlayerTiers,
+  calculateReplacementRanks,
+  computeLeagueAdjustedProjection,
+  DEFAULT_ROSTER_SETTINGS,
+} from '@/app/DashboardClient';
 
 const players = [
   {
@@ -34,6 +39,11 @@ const players = [
   },
 ];
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
 describe('DashboardClient', () => {
   it('renders rows from initial data', () => {
     render(<DashboardClient initialData={players} />);
@@ -51,6 +61,46 @@ describe('DashboardClient', () => {
 
     expect(screen.getByText('Josh Allen')).toBeInTheDocument();
     expect(screen.queryByText('CeeDee Lamb')).not.toBeInTheDocument();
+  });
+
+  it('refreshes player data from FantasyPros refresh endpoint', async () => {
+    const refreshedPlayers = [
+      {
+        id: '99',
+        name: 'Refreshed Player',
+        team: 'KC',
+        position: 'WR',
+        ecr: 9,
+        proj_pts: 18.5,
+        advancedFields: {},
+      },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        players: refreshedPlayers,
+        fetchedAtIso: '2026-08-15T12:00:00.000Z',
+        errorMessage: null,
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('refresh-data-button'));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/fantasypros/refresh', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Refreshed Player')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Christian McCaffrey')).not.toBeInTheDocument();
+    expect(screen.getByTestId('refresh-last-updated')).toHaveTextContent('Last updated:');
   });
 
   it('filters by position button', () => {
@@ -115,6 +165,70 @@ describe('DashboardClient', () => {
     expect(screen.getByTestId('advanced-cell-3-projection_points')).toHaveTextContent('24.1');
   });
 
+  it('surfaces targets_per_route_run and yprr as toggleable advanced columns', () => {
+    const advancedMetricPlayers = [
+      {
+        id: 'm1',
+        name: 'Metric WR',
+        team: 'MIA',
+        position: 'WR',
+        ecr: 8,
+        proj_pts: 16,
+        advancedFields: {
+          projection: {
+            stats: [{ targets_per_route_run: 0.31, yprr: 2.4 }],
+          },
+        },
+      },
+    ];
+
+    render(<DashboardClient initialData={advancedMetricPlayers} />);
+
+    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
+    fireEvent.click(screen.getByText('targets_per_route_run'));
+    fireEvent.click(screen.getByText('yprr'));
+
+    expect(screen.getByTestId('advanced-header-targets_per_route_run')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-yprr')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-cell-m1-targets_per_route_run')).toHaveTextContent('0.31');
+    expect(screen.getByTestId('advanced-cell-m1-yprr')).toHaveTextContent('2.4');
+  });
+
+  it('surfaces all newer synthetic advanced metrics in the dropdown', () => {
+    const syntheticMetricPlayers = [
+      {
+        id: 's1',
+        name: 'Synthetic Metrics RB',
+        team: 'DET',
+        position: 'RB',
+        ecr: 18,
+        proj_pts: 14,
+        isRookie: true,
+        advancedFields: {
+          isRookie: true,
+          targetShare: 0.22,
+          redZoneTargets: 14,
+          greenZoneTouches: 28,
+          gamesPlayed: 14,
+          projection: {
+            stats: [{ targets_per_route_run: 0.27, yprr: 2.1 }],
+          },
+        },
+      },
+    ];
+
+    render(<DashboardClient initialData={syntheticMetricPlayers} />);
+    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
+
+    expect(screen.getByText('is_rookie')).toBeInTheDocument();
+    expect(screen.getByText('target_share')).toBeInTheDocument();
+    expect(screen.getByText('red_zone_targets')).toBeInTheDocument();
+    expect(screen.getByText('green_zone_touches')).toBeInTheDocument();
+    expect(screen.getByText('green_zone_touches_per_game')).toBeInTheDocument();
+    expect(screen.getByText('targets_per_route_run')).toBeInTheDocument();
+    expect(screen.getByText('yprr')).toBeInTheDocument();
+  });
+
   it('sorts advanced columns ascending then descending', () => {
     render(<DashboardClient initialData={players} />);
 
@@ -128,6 +242,24 @@ describe('DashboardClient', () => {
     fireEvent.click(screen.getByTestId('advanced-header-customValueScore'));
     rows = screen.getAllByTestId(/player-row-/);
     expect(rows[0]).toHaveTextContent('Christian McCaffrey');
+  });
+
+  it('creates tiers when positional projection gaps exceed 1.5 points', () => {
+    const tierMap = assignPlayerTiers([
+      { id: 'qb-1', position: 'QB', leagueAdjustedPoints: 24 },
+      { id: 'qb-2', position: 'QB', leagueAdjustedPoints: 22.6 },
+      { id: 'qb-3', position: 'QB', leagueAdjustedPoints: 20.9 },
+      { id: 'wr-1', position: 'WR', leagueAdjustedPoints: 20.5 },
+      { id: 'wr-2', position: 'WR', leagueAdjustedPoints: 20 },
+      { id: 'wr-3', position: 'WR', leagueAdjustedPoints: 18.3 },
+    ]);
+
+    expect(tierMap.get('qb-1')).toBe(1);
+    expect(tierMap.get('qb-2')).toBe(1);
+    expect(tierMap.get('qb-3')).toBe(2);
+    expect(tierMap.get('wr-1')).toBe(1);
+    expect(tierMap.get('wr-2')).toBe(1);
+    expect(tierMap.get('wr-3')).toBe(2);
   });
 
   it('renders a 12-team draft board with 12 rounds', () => {
@@ -151,6 +283,97 @@ describe('DashboardClient', () => {
 
     expect(screen.getByTestId('draft-board-pick-1')).toHaveTextContent('12');
     expect(screen.getByTestId('draft-board-pick-2')).toHaveTextContent('13');
+  });
+
+  it('boosts a last-in-tier starter with Tier Drop Warning to draft before the cliff', () => {
+    const tierDropPlayers = [
+      { id: 'wr-1', name: 'WR Stable 1', team: 'DAL', position: 'WR', ecr: 1, adp: 1, proj_pts: 21.2 },
+      { id: 'wr-2', name: 'WR Stable 2', team: 'MIA', position: 'WR', ecr: 2, adp: 2, proj_pts: 20.6 },
+      { id: 'wr-3', name: 'WR Stable 3', team: 'DET', position: 'WR', ecr: 3, adp: 3, proj_pts: 18.8 },
+      { id: 'te-1', name: 'TE Cliff', team: 'KC', position: 'TE', ecr: 4, adp: 4, proj_pts: 20.5 },
+      { id: 'te-2', name: 'TE Drop', team: 'BUF', position: 'TE', ecr: 5, adp: 5, proj_pts: 18.8 },
+    ];
+
+    render(<DashboardClient initialData={tierDropPlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('TE Cliff (TE)');
+  });
+
+  it('activates Hero RB path in round 2 when one RB is drafted in round 1', () => {
+    const heroRbPlayers = [
+      { id: 'rb-anchor', name: 'RB Anchor', team: 'SF', position: 'RB', ecr: 1, adp: 1, proj_pts: 30 },
+      { id: 'wr-1', name: 'WR One', team: 'MIA', position: 'WR', ecr: 2, adp: 2, proj_pts: 21 },
+      { id: 'te-elite', name: 'Elite TE', team: 'KC', position: 'TE', ecr: 8, adp: 20, proj_pts: 17 },
+      { id: 'rb-2', name: 'RB Two', team: 'BAL', position: 'RB', ecr: 10, adp: 18, proj_pts: 18 },
+    ];
+
+    render(<DashboardClient initialData={heroRbPlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('RB Anchor (RB)');
+    expect(screen.getByTestId('draft-board-row-2')).toHaveTextContent('Hero RB active');
+  });
+
+  it('activates Zero RB path in rounds 3-6 when no RB is drafted through round 2', () => {
+    const zeroRbPlayers = [
+      { id: 'wr-alpha', name: 'WR Alpha', team: 'DET', position: 'WR', ecr: 1, adp: 1, proj_pts: 28 },
+      { id: 'wr-beta', name: 'WR Beta', team: 'DAL', position: 'WR', ecr: 2, adp: 2, proj_pts: 25 },
+      { id: 'te-elite', name: 'Elite TE', team: 'KC', position: 'TE', ecr: 3, adp: 15, proj_pts: 20 },
+      { id: 'rb-fade', name: 'RB Fade', team: 'CAR', position: 'RB', ecr: 20, adp: 200, proj_pts: 7 },
+      { id: 'rb-fade-2', name: 'RB Fade 2', team: 'LV', position: 'RB', ecr: 21, adp: 210, proj_pts: 6.5 },
+    ];
+
+    render(<DashboardClient initialData={zeroRbPlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-row-3')).toHaveTextContent('Zero RB active');
+    expect(screen.getByTestId('draft-board-primary-3')).not.toHaveTextContent('RB Fade');
+    expect(screen.getByTestId('draft-board-primary-3')).not.toHaveTextContent('RB Fade 2');
+  });
+
+  it('shows a Stack badge when a recommendation completes a QB/WR or QB/TE stack', () => {
+    const stackPlayers = [
+      { id: 'qb-buf', name: 'Stack QB', team: 'BUF', position: 'QB', ecr: 1, adp: 1, proj_pts: 35 },
+      { id: 'wr-buf', name: 'Stack WR', team: 'BUF', position: 'WR', ecr: 90, adp: 95, proj_pts: 8 },
+      { id: 'wr-dal', name: 'Other WR', team: 'DAL', position: 'WR', ecr: 89, adp: 94, proj_pts: 8 },
+    ];
+
+    render(<DashboardClient initialData={stackPlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('Stack QB (QB)');
+    expect(screen.getByTestId('draft-board-primary-2')).toHaveTextContent('Stack WR (WR)');
+    expect(screen.getByTestId('draft-board-stack-badge-2')).toHaveTextContent('Stack');
+  });
+
+  it('applies rookie late-season breakout coefficient for WR/RB by boosting ceiling points', () => {
+    const result = computeLeagueAdjustedProjection({
+      id: 'rookie-wr',
+      name: 'Rookie WR',
+      team: 'LAR',
+      position: 'WR',
+      proj_pts: 20,
+      isRookie: true,
+      advancedFields: {},
+    });
+
+    expect(result.usedDetailedStats).toBe(false);
+    expect(result.ceilingPoints).toBe(30.26);
+    expect(result.rookieLateSeasonBreakoutApplied).toBe(true);
+  });
+
+  it('adds rookie draft-score boost and shows Rookie Upside badge on draft recommendations', () => {
+    const rookieUpsidePlayers = [
+      { id: 'rookie-wr', name: 'Rookie WR', team: 'MIA', position: 'WR', ecr: 10, adp: 10, proj_pts: 20, isRookie: true },
+      { id: 'veteran-wr', name: 'Veteran WR', team: 'DAL', position: 'WR', ecr: 10, adp: 10, proj_pts: 20, isRookie: false },
+    ];
+
+    render(<DashboardClient initialData={rookieUpsidePlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('Rookie WR (WR)');
+    expect(screen.getByTestId('draft-board-rookie-badge-1')).toHaveTextContent('Rookie Upside');
   });
 
   it('optimizes draft strategy messaging based on draft position', () => {
@@ -201,6 +424,186 @@ describe('DashboardClient', () => {
     });
 
     expect(result.usedDetailedStats).toBe(true);
-    expect(result.points).toBe(29);
+    expect(result.medianPoints).toBe(28.15);
+    expect(result.floorPoints).toBeLessThan(result.medianPoints);
+    expect(result.ceilingPoints).toBeGreaterThan(result.medianPoints);
+    expect(result.upsideProbability).toBeGreaterThan(0);
+  });
+
+  it('calculates replacement ranks from roster settings instead of hardcoded values', () => {
+    const defaultRanks = calculateReplacementRanks(DEFAULT_ROSTER_SETTINGS);
+    expect(defaultRanks).toEqual({ QB: 15, RB: 35, WR: 47, TE: 19 });
+
+    const twoFlexLeagueRanks = calculateReplacementRanks({
+      ...DEFAULT_ROSTER_SETTINGS,
+      flexSpots: 2,
+    });
+    expect(twoFlexLeagueRanks.RB).toBeGreaterThan(defaultRanks.RB);
+    expect(twoFlexLeagueRanks.WR).toBeGreaterThan(defaultRanks.WR);
+    expect(twoFlexLeagueRanks.QB).toBe(defaultRanks.QB);
+  });
+
+  it('boosts league-adjusted projection for players above 25% target share', () => {
+    const result = computeLeagueAdjustedProjection({
+      id: 'wr-target-share',
+      name: 'Target Hog WR',
+      team: 'LAR',
+      position: 'WR',
+      proj_pts: 14,
+      advancedFields: {
+        projection: {
+          stats: [{ rec_yds: 100, rec_td: 1 }],
+        },
+        targetShare: 0.3,
+      },
+    });
+
+    expect(result.usedDetailedStats).toBe(true);
+    expect(result.medianPoints).toBe(17.82);
+    expect(result.upsideProbability).toBeGreaterThan(40);
+  });
+
+  it('boosts league-adjusted projection for players above 1.5 green-zone touches per game', () => {
+    const result = computeLeagueAdjustedProjection({
+      id: 'rb-green-zone',
+      name: 'Goal Line RB',
+      team: 'DET',
+      position: 'RB',
+      proj_pts: 16,
+      advancedFields: {
+        projection: {
+          stats: [{ rush_yds: 80, rush_td: 1 }],
+        },
+        greenZoneTouches: 30,
+        gamesPlayed: 10,
+      },
+    });
+
+    expect(result.usedDetailedStats).toBe(true);
+    expect(result.medianPoints).toBe(14.68);
+    expect(result.upsideProbability).toBeGreaterThan(40);
+  });
+
+  it('applies expected-games-played reduction for questionable injury status', () => {
+    const result = computeLeagueAdjustedProjection({
+      id: 'wr-questionable',
+      name: 'Questionable WR',
+      team: 'SEA',
+      position: 'WR',
+      proj_pts: 17,
+      advancedFields: {
+        injuryStatus: 'Questionable',
+      },
+    });
+
+    expect(result.usedDetailedStats).toBe(false);
+    expect(result.medianPoints).toBe(14.7);
+  });
+
+  it('applies playoff strength-of-schedule shift for easy and hard schedules', () => {
+    const easySchedule = computeLeagueAdjustedProjection({
+      id: 'rb-easy-playoff',
+      name: 'Easy Schedule RB',
+      team: 'DET',
+      position: 'RB',
+      proj_pts: 20,
+      advancedFields: {
+        strengthOfSchedule: 'easy',
+      },
+    });
+
+    const hardSchedule = computeLeagueAdjustedProjection({
+      id: 'rb-hard-playoff',
+      name: 'Hard Schedule RB',
+      team: 'DET',
+      position: 'RB',
+      proj_pts: 20,
+      advancedFields: {
+        strengthOfSchedule: 'hard',
+      },
+    });
+
+    expect(easySchedule.usedDetailedStats).toBe(false);
+    expect(hardSchedule.usedDetailedStats).toBe(false);
+    expect(easySchedule.medianPoints).toBe(21.2);
+    expect(hardSchedule.medianPoints).toBe(19.18);
+  });
+
+  it('switches draft board recommendation weighting when matchup-winning ceiling mode is enabled', () => {
+    const modePlayers = [
+      { id: 'safe-wr', name: 'Safe WR', team: 'DAL', position: 'WR', ecr: 1, adp: 1, proj_pts: 30 },
+      {
+        id: 'ceiling-wr',
+        name: 'Ceiling WR',
+        team: 'MIA',
+        position: 'WR',
+        ecr: 2,
+        adp: 2,
+        proj_pts: 28,
+        advancedFields: { targetShare: 0.3, greenZoneTouchesPerGame: 2.2 },
+      },
+    ];
+
+    render(<DashboardClient initialData={modePlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('Safe WR (WR)');
+
+    fireEvent.click(screen.getByTestId('draft-mode-matchup-winning-ceiling'));
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('Ceiling WR (WR)');
+  });
+
+  it('applies breakout coefficient for WR/TE with elite TPRR or YPRR', () => {
+    const breakoutPlayers = [
+      {
+        id: 'wr-safe',
+        name: 'Safe WR',
+        team: 'DAL',
+        position: 'WR',
+        ecr: 10,
+        adp: 10,
+        proj_pts: 20,
+        advancedFields: {
+          projection: {
+            stats: [{ targets_per_route_run: 0.2, yprr: 1.7 }],
+          },
+        },
+      },
+      {
+        id: 'wr-breakout',
+        name: 'Breakout WR',
+        team: 'MIA',
+        position: 'WR',
+        ecr: 10,
+        adp: 10,
+        proj_pts: 20,
+        advancedFields: {
+          projection: {
+            stats: [{ targets_per_route_run: 0.3, yprr: 2.2 }],
+          },
+        },
+      },
+    ];
+
+    render(<DashboardClient initialData={breakoutPlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('Breakout WR (WR)');
+  });
+
+  it("doesn't recommend a round-4 reach when ADP indicates the player will be there in round 6", () => {
+    const adpAwarePlayers = [
+      { id: 'a', name: 'Anchor RB', team: 'SF', position: 'RB', ecr: 1, adp: 2, proj_pts: 28 },
+      { id: 'b', name: 'Anchor WR', team: 'DET', position: 'WR', ecr: 2, adp: 14, proj_pts: 25 },
+      { id: 'c', name: 'Anchor QB', team: 'BUF', position: 'QB', ecr: 3, adp: 26, proj_pts: 24 },
+      { id: 'd', name: 'Late ADP Upside', team: 'MIA', position: 'WR', ecr: 4, adp: 80, proj_pts: 30 },
+      { id: 'e', name: 'Round 4 Value', team: 'LAR', position: 'WR', ecr: 20, adp: 42, proj_pts: 19 },
+    ];
+
+    render(<DashboardClient initialData={adpAwarePlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-pick-4')).toHaveTextContent('48');
+    expect(screen.getByTestId('draft-board-primary-4')).not.toHaveTextContent('Late ADP Upside (WR)');
   });
 });

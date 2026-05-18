@@ -9,7 +9,9 @@ type DashboardTablePlayer = {
   name: string;
   team: string;
   position: string;
+  isRookie: boolean;
   ecr?: number;
+  adp?: number;
   proj_pts?: number;
   advancedFields: Record<string, unknown>;
 };
@@ -32,11 +34,15 @@ function mapToDashboardTablePlayers(players: Awaited<ReturnType<typeof getFantas
     name: player.name,
     team: extractTeamFromRaw(player.raw),
     position: player.position,
+    isRookie: player.isRookie,
     ecr: player.overallRank ?? undefined,
+    adp: player.adp ?? undefined,
     proj_pts: player.projectedPoints,
     advancedFields: {
       ...player.raw,
+      isRookie: player.isRookie,
       overallRank: player.overallRank,
+      adp: player.adp,
       projectedPoints: player.projectedPoints,
       customValueScore: player.customValueScore,
       injuryStatus: player.injuryStatus,
