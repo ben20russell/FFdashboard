@@ -789,7 +789,9 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
   const [positionFilter, setPositionFilter] = useState<PositionFilter>('ALL');
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
   const [showAdvancedColumns, setShowAdvancedColumns] = useState(false);
-  const [selectedAdvancedColumns, setSelectedAdvancedColumns] = useState<string[]>([]);
+  const [selectedAdvancedColumns, setSelectedAdvancedColumns] = useState<string[]>([
+    ...SYNTHETIC_ADVANCED_COLUMN_PATHS,
+  ]);
   const [draftPosition, setDraftPosition] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<DraftTab>('player-rankings');
   const [draftMode, setDraftMode] = useState<DraftMode>('safe-floor');

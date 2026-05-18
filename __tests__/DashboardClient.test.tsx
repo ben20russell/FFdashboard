@@ -184,10 +184,6 @@ describe('DashboardClient', () => {
 
     render(<DashboardClient initialData={advancedMetricPlayers} />);
 
-    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
-    fireEvent.click(screen.getByText('targets_per_route_run'));
-    fireEvent.click(screen.getByText('yprr'));
-
     expect(screen.getByTestId('advanced-header-targets_per_route_run')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-yprr')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-cell-m1-targets_per_route_run')).toHaveTextContent('0.31');
@@ -218,15 +214,14 @@ describe('DashboardClient', () => {
     ];
 
     render(<DashboardClient initialData={syntheticMetricPlayers} />);
-    fireEvent.click(screen.getByTestId('advanced-columns-toggle'));
 
-    expect(screen.getByText('is_rookie')).toBeInTheDocument();
-    expect(screen.getByText('target_share')).toBeInTheDocument();
-    expect(screen.getByText('red_zone_targets')).toBeInTheDocument();
-    expect(screen.getByText('green_zone_touches')).toBeInTheDocument();
-    expect(screen.getByText('green_zone_touches_per_game')).toBeInTheDocument();
-    expect(screen.getByText('targets_per_route_run')).toBeInTheDocument();
-    expect(screen.getByText('yprr')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-is_rookie')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-target_share')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-red_zone_targets')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-green_zone_touches')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-green_zone_touches_per_game')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-targets_per_route_run')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-yprr')).toBeInTheDocument();
   });
 
   it('sorts advanced columns ascending then descending', () => {
