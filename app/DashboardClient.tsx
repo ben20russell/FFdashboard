@@ -22,6 +22,7 @@ type AdvancedColumnOption = {
   valueCount: number;
 };
 type DraftablePosition = 'QB' | 'RB' | 'WR' | 'TE';
+type DraftSlotBucket = 'early' | 'middle' | 'late';
 type DraftScoredPlayer = Player & {
   draftScore: number;
   vorp: number;
@@ -104,22 +105,58 @@ function calculateSnakePick(round: number, draftPosition: number, teamCount: num
   return round * teamCount - draftPosition + 1;
 }
 
-function getRoundStrategy(round: number): string {
-  if (round <= 2) return 'Anchor RB/WR value';
-  if (round <= 5) return 'Build core starters';
-  if (round <= 8) return 'Exploit tier breaks';
-  return 'Upside and depth bets';
+function getDraftSlotBucket(draftPosition: number): DraftSlotBucket {
+  if (draftPosition <= 4) return 'early';
+  if (draftPosition <= 8) return 'middle';
+  return 'late';
 }
 
-function getRoundPositionPriority(round: number): DraftablePosition[] {
-  if (round === 1) return ['RB', 'WR', 'TE', 'QB'];
-  if (round === 2) return ['WR', 'RB', 'TE', 'QB'];
-  if (round === 3) return ['RB', 'WR', 'TE', 'QB'];
-  if (round === 4) return ['WR', 'RB', 'QB', 'TE'];
+function getRoundStrategy(round: number, draftPosition: number): string {
+  const slotBucket = getDraftSlotBucket(draftPosition);
+
+  if (round === 1) {
+    if (slotBucket === 'early') return 'Hero RB start: secure elite RB/WR anchor';
+    if (slotBucket === 'middle') return 'Balanced anchor: best RB/WR value on board';
+    return 'Elite WR start: leverage late-slot turn volatility';
+  }
+
+  if (round === 2) {
+    if (slotBucket === 'late') return 'Double-tap WR or add elite TE if tier-1 falls';
+    return 'Add WR1/RB2 volume; monitor elite TE value pocket';
+  }
+
+  if (round <= 4) return 'Exploit elite TE window + target-share WR tiers';
+  if (round <= 6) return 'RB/WR value core; prioritize rushing-QB value lane';
+  if (round <= 9) return 'Attack WR breakout pocket and RB handcuff leverage';
+  return 'Upside bench build; delay DST and streamable positions';
+}
+
+function getRoundPositionPriority(round: number, draftPosition: number): DraftablePosition[] {
+  const slotBucket = getDraftSlotBucket(draftPosition);
+
+  if (round === 1) {
+    if (slotBucket === 'late') return ['WR', 'RB', 'TE', 'QB'];
+    return ['RB', 'WR', 'TE', 'QB'];
+  }
+
+  if (round === 2) {
+    if (slotBucket === 'early') return ['WR', 'RB', 'TE', 'QB'];
+    if (slotBucket === 'middle') return ['RB', 'WR', 'TE', 'QB'];
+    return ['WR', 'TE', 'RB', 'QB'];
+  }
+
+  if (round === 3) {
+    if (slotBucket === 'early') return ['TE', 'WR', 'RB', 'QB'];
+    if (slotBucket === 'middle') return ['WR', 'RB', 'TE', 'QB'];
+    return ['TE', 'RB', 'WR', 'QB'];
+  }
+
+  if (round === 4) return ['WR', 'TE', 'RB', 'QB'];
   if (round === 5) return ['WR', 'RB', 'QB', 'TE'];
-  if (round === 6) return ['QB', 'TE', 'RB', 'WR'];
-  if (round === 7) return ['RB', 'WR', 'TE', 'QB'];
-  if (round === 8) return ['TE', 'QB', 'WR', 'RB'];
+  if (round === 6) return ['QB', 'WR', 'RB', 'TE'];
+  if (round === 7) return ['WR', 'RB', 'QB', 'TE'];
+  if (round === 8) return ['WR', 'QB', 'RB', 'TE'];
+  if (round === 9) return ['WR', 'RB', 'QB', 'TE'];
   return ['RB', 'WR', 'TE', 'QB'];
 }
 
@@ -567,7 +604,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
     const rows: DraftBoardRow[] = [];
 
     for (let round = 1; round <= DRAFT_ROUNDS; round += 1) {
-      const priority = getRoundPositionPriority(round);
+      const priority = getRoundPositionPriority(round, draftPosition);
       const overallPick = calculateSnakePick(round, draftPosition, DRAFT_TEAM_COUNT);
 
       const rankedCandidates = available
@@ -608,7 +645,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
       rows.push({
         round,
         overallPick,
-        strategy: getRoundStrategy(round),
+        strategy: getRoundStrategy(round, draftPosition),
         primary,
         likelyPick,
         alternatives,
@@ -617,6 +654,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
 
     console.log('[DashboardClient] draft board generated', {
       draftPosition,
+      slotBucket: getDraftSlotBucket(draftPosition),
       rounds: rows.length,
       firstRoundRecommendation: rows[0]?.primary?.name ?? null,
     });
@@ -713,7 +751,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
             <div>
               <h2 className="text-base font-semibold text-slate-900">12-Team Draft Board</h2>
               <p className="text-xs text-slate-500">
-                Pick-by-pick recommendations built from projection value, ECR gap, and positional scarcity.
+                Pick-by-pick recommendations optimized for your draft slot using value, scarcity tiers, and timing windows.
               </p>
             </div>
 

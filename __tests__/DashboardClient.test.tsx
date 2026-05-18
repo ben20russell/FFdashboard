@@ -153,6 +153,16 @@ describe('DashboardClient', () => {
     expect(screen.getByTestId('draft-board-pick-2')).toHaveTextContent('13');
   });
 
+  it('optimizes draft strategy messaging based on draft position', () => {
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+    expect(screen.getByTestId('draft-board-row-1')).toHaveTextContent('Hero RB');
+
+    fireEvent.change(screen.getByTestId('draft-position-select'), { target: { value: '12' } });
+    expect(screen.getByTestId('draft-board-row-1')).toHaveTextContent('Elite WR');
+  });
+
   it('switches between draft board and player rankings tabs', () => {
     render(<DashboardClient initialData={players} />);
 
