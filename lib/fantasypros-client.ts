@@ -103,20 +103,38 @@ function getConfiguredSport(inputSport?: FantasyProsSport): FantasyProsSport {
   return DEFAULT_SPORT;
 }
 
-function getConfiguredSeason(): number {
-  const envSeason = process.env.FANTASYPROS_SEASON;
-
-  if (!envSeason) {
-    return new Date().getFullYear();
+function parseSeasonFromEnv(envValue: string | undefined, envLabel: string): number | null {
+  if (!envValue) {
+    return null;
   }
 
-  const parsedSeason = Number.parseInt(envSeason, 10);
+  const parsedSeason = Number.parseInt(envValue, 10);
   if (!Number.isFinite(parsedSeason) || parsedSeason < 2012) {
-    console.warn('[getConfiguredSeason] Invalid FANTASYPROS_SEASON value, using current year', { envSeason });
-    return new Date().getFullYear();
+    console.warn(`[getConfiguredSeason] Invalid ${envLabel} value, ignoring override`, { [envLabel]: envValue });
+    return null;
   }
 
   return parsedSeason;
+}
+
+function getConfiguredSeason(kind: 'rankings' | 'projections' | 'active' = 'rankings'): number {
+  const sourceSpecificEnv =
+    kind === 'rankings'
+      ? parseSeasonFromEnv(process.env.FANTASYPROS_RANKINGS_SEASON, 'FANTASYPROS_RANKINGS_SEASON')
+      : kind === 'projections'
+        ? parseSeasonFromEnv(process.env.FANTASYPROS_PROJECTIONS_SEASON, 'FANTASYPROS_PROJECTIONS_SEASON')
+        : parseSeasonFromEnv(process.env.FANTASYPROS_ACTIVE_SEASON, 'FANTASYPROS_ACTIVE_SEASON');
+
+  if (sourceSpecificEnv !== null) {
+    return sourceSpecificEnv;
+  }
+
+  const sharedSeason = parseSeasonFromEnv(process.env.FANTASYPROS_SEASON, 'FANTASYPROS_SEASON');
+  if (sharedSeason !== null) {
+    return sharedSeason;
+  }
+
+  return new Date().getFullYear();
 }
 
 export function extractCollectionFromPayload<TItem extends FantasyProsRecord>(
@@ -287,7 +305,7 @@ export async function getFantasyProsPlayers(query?: FantasyProsQueryParams, opti
 
 export async function getFantasyProsRankings(query?: FantasyProsQueryParams, options?: { forceFresh?: boolean }) {
   const sport = getConfiguredSport();
-  const configuredSeason = getConfiguredSeason();
+  const configuredSeason = getConfiguredSeason('rankings');
   const seasonsToTry = [configuredSeason, configuredSeason - 1];
 
   for (const season of seasonsToTry) {
@@ -321,7 +339,7 @@ export async function getFantasyProsRankings(query?: FantasyProsQueryParams, opt
 }
 
 export async function getFantasyProsProjections(query?: FantasyProsQueryParams, options?: { forceFresh?: boolean }) {
-  const configuredSeason = getConfiguredSeason();
+  const configuredSeason = getConfiguredSeason('projections');
   const seasonsToTry = [configuredSeason, configuredSeason - 1];
 
   for (const season of seasonsToTry) {

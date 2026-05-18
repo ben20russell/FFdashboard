@@ -112,6 +112,16 @@ describe('DashboardClient', () => {
     expect(screen.queryByText('Christian McCaffrey')).not.toBeInTheDocument();
   });
 
+  it('filters by FLEX button to show only RB, WR, and TE', () => {
+    render(<DashboardClient initialData={players} />);
+
+    fireEvent.click(screen.getByTestId('position-filter-flex'));
+
+    expect(screen.getByText('Christian McCaffrey')).toBeInTheDocument();
+    expect(screen.getByText('CeeDee Lamb')).toBeInTheDocument();
+    expect(screen.queryByText('Josh Allen')).not.toBeInTheDocument();
+  });
+
   it('sorts by ECR ascending then descending', () => {
     render(<DashboardClient initialData={players} />);
 
@@ -202,6 +212,7 @@ describe('DashboardClient', () => {
         isRookie: true,
         advancedFields: {
           isRookie: true,
+          std_dev: 5.1,
           targetShare: 0.22,
           redZoneTargets: 14,
           greenZoneTouches: 28,
@@ -216,12 +227,32 @@ describe('DashboardClient', () => {
     render(<DashboardClient initialData={syntheticMetricPlayers} />);
 
     expect(screen.getByTestId('advanced-header-is_rookie')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-header-volatility')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-target_share')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-red_zone_targets')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-green_zone_touches')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-green_zone_touches_per_game')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-targets_per_route_run')).toBeInTheDocument();
     expect(screen.getByTestId('advanced-header-yprr')).toBeInTheDocument();
+  });
+
+  it('renders Volatility advanced column using std_dev data', () => {
+    const volatilityPlayers = [
+      {
+        id: 'v1',
+        name: 'Boom WR',
+        team: 'MIA',
+        position: 'WR',
+        ecr: 11,
+        proj_pts: 17,
+        advancedFields: { std_dev: 6.3 },
+      },
+    ];
+
+    render(<DashboardClient initialData={volatilityPlayers} />);
+
+    expect(screen.getByTestId('advanced-header-volatility')).toHaveTextContent('Volatility');
+    expect(screen.getByTestId('advanced-cell-v1-volatility')).toHaveTextContent('6.3');
   });
 
   it('sorts advanced columns ascending then descending', () => {
@@ -586,6 +617,40 @@ describe('DashboardClient', () => {
     expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('Breakout WR (WR)');
   });
 
+  it('applies a hot-start bonus when early-season pace is meaningfully above season-long pace', () => {
+    const hotStartPlayers = [
+      {
+        id: 'steady-wr',
+        name: 'Steady WR',
+        team: 'DAL',
+        position: 'WR',
+        ecr: 10,
+        adp: 10,
+        proj_pts: 20,
+        advancedFields: {
+          earlySeasonPoints: 68,
+        },
+      },
+      {
+        id: 'hot-wr',
+        name: 'Hot Start WR',
+        team: 'MIA',
+        position: 'WR',
+        ecr: 10,
+        adp: 10,
+        proj_pts: 20,
+        advancedFields: {
+          earlySeasonPoints: 96,
+        },
+      },
+    ];
+
+    render(<DashboardClient initialData={hotStartPlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('Hot Start WR (WR)');
+  });
+
   it("doesn't recommend a round-4 reach when ADP indicates the player will be there in round 6", () => {
     const adpAwarePlayers = [
       { id: 'a', name: 'Anchor RB', team: 'SF', position: 'RB', ecr: 1, adp: 2, proj_pts: 28 },
@@ -600,5 +665,76 @@ describe('DashboardClient', () => {
 
     expect(screen.getByTestId('draft-board-pick-4')).toHaveTextContent('48');
     expect(screen.getByTestId('draft-board-primary-4')).not.toHaveTextContent('Late ADP Upside (WR)');
+  });
+
+  it('applies upside variance boost in round 7+ for high-std-dev players', () => {
+    const variancePlayers = [
+      { id: 'w1', name: 'Early WR 1', team: 'DAL', position: 'WR', ecr: 1, adp: 1, proj_pts: 32 },
+      { id: 'w2', name: 'Early WR 2', team: 'MIA', position: 'WR', ecr: 2, adp: 2, proj_pts: 31 },
+      { id: 'w3', name: 'Early WR 3', team: 'DET', position: 'WR', ecr: 3, adp: 3, proj_pts: 30 },
+      { id: 'w4', name: 'Early WR 4', team: 'BUF', position: 'WR', ecr: 4, adp: 4, proj_pts: 29 },
+      { id: 'w5', name: 'Early WR 5', team: 'KC', position: 'WR', ecr: 5, adp: 5, proj_pts: 28 },
+      { id: 'w6', name: 'Early WR 6', team: 'PHI', position: 'WR', ecr: 6, adp: 6, proj_pts: 27 },
+      { id: 'steady', name: 'Steady Late WR', team: 'SEA', position: 'WR', ecr: 80, adp: 90, proj_pts: 15 },
+      {
+        id: 'volatile',
+        name: 'Volatile Late WR',
+        team: 'LAR',
+        position: 'WR',
+        ecr: 81,
+        adp: 91,
+        proj_pts: 14.8,
+        advancedFields: { std_dev: 6.2 },
+      },
+    ];
+
+    render(<DashboardClient initialData={variancePlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-7')).toHaveTextContent('Volatile Late WR (WR)');
+  });
+
+  it('applies a bye-week conflict penalty for same-position overlaps on drafted roster', () => {
+    const byeWeekPlayers = [
+      {
+        id: 'wr-anchor',
+        name: 'WR Anchor',
+        team: 'DAL',
+        position: 'WR',
+        ecr: 1,
+        adp: 1,
+        proj_pts: 30,
+        byeWeek: 7,
+        advancedFields: { bye_week: 7 },
+      },
+      {
+        id: 'wr-conflict',
+        name: 'WR Conflict',
+        team: 'MIA',
+        position: 'WR',
+        ecr: 20,
+        adp: 20,
+        proj_pts: 22,
+        byeWeek: 7,
+        advancedFields: { bye_week: 7 },
+      },
+      {
+        id: 'wr-alt',
+        name: 'WR Alt',
+        team: 'DET',
+        position: 'WR',
+        ecr: 21,
+        adp: 21,
+        proj_pts: 21.4,
+        byeWeek: 9,
+        advancedFields: { bye_week: 9 },
+      },
+    ];
+
+    render(<DashboardClient initialData={byeWeekPlayers} />);
+    fireEvent.click(screen.getByTestId('tab-draft-board'));
+
+    expect(screen.getByTestId('draft-board-primary-1')).toHaveTextContent('WR Anchor (WR)');
+    expect(screen.getByTestId('draft-board-primary-2')).toHaveTextContent('WR Alt (WR)');
   });
 });

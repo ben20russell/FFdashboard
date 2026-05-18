@@ -48,8 +48,19 @@ describe('buildFullFantasyProsModel', () => {
 
   it('parses nested ranking/projection payload shapes from official endpoints', () => {
     const result = buildFullFantasyProsModel({
-      players: [{ id: 7354, player_name: 'Saquon Barkley', position_id: 'RB', team_id: 'PHI' }],
-      rankings: [{ id: 7354, player_name: 'Saquon Barkley', rank_ecr: '2', position_id: 'RB', adp: '7.4' }],
+      players: [{ id: 7354, player_name: 'Saquon Barkley', position_id: 'RB', team_id: 'PHI', bye_week: 5 }],
+      rankings: [
+        {
+          id: 7354,
+          player_name: 'Saquon Barkley',
+          rank_ecr: '2',
+          position_id: 'RB',
+          adp: '7.4',
+          std_dev: '5.8',
+          best: '1',
+          worst: '9',
+        },
+      ],
       projections: [{ id: 7354, player_name: 'Saquon Barkley', position_id: 'RB', stats: [{ points: '18.4' }] }],
       injuries: [],
     });
@@ -57,6 +68,10 @@ describe('buildFullFantasyProsModel', () => {
     expect(result.players).toHaveLength(1);
     expect(result.players[0]?.overallRank).toBe(2);
     expect(result.players[0]?.adp).toBe(7.4);
+    expect(result.players[0]?.byeWeek).toBe(5);
+    expect(result.players[0]?.stdDev).toBe(5.8);
+    expect(result.players[0]?.best).toBe(1);
+    expect(result.players[0]?.worst).toBe(9);
     expect(result.players[0]?.projectedPoints).toBe(18.4);
     expect(result.players[0]?.position).toBe('RB');
   });
@@ -161,6 +176,18 @@ describe('buildFullFantasyProsModel', () => {
     expect(result.players[0]?.isRookie).toBe(true);
   });
 
+  it('populates overallRank from players feed ECR fields when ranking records are unavailable', () => {
+    const result = buildFullFantasyProsModel({
+      players: [{ id: 350, player_name: 'Players Feed ECR', position_id: 'WR', ecr: '27' }],
+      rankings: [],
+      projections: [{ id: 350, projected_points: '14.1' }],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(1);
+    expect(result.players[0]?.overallRank).toBe(27);
+  });
+
   it('does not mark every player as rookie when experience fields are missing', () => {
     const result = buildFullFantasyProsModel({
       players: [{ id: 401, player_name: 'Veteran By Default', position_id: 'WR' }],
@@ -190,5 +217,24 @@ describe('buildFullFantasyProsModel', () => {
     expect(result.players).toHaveLength(2);
     expect(result.players.find((player) => player.id === '402')?.isRookie).toBe(true);
     expect(result.players.find((player) => player.id === '403')?.isRookie).toBe(false);
+  });
+
+  it('aggregates week 1-4 projection totals into earlySeasonPoints', () => {
+    const result = buildFullFantasyProsModel({
+      players: [{ id: 501, player_name: 'Hot Start WR', position_id: 'WR', team_id: 'MIA' }],
+      rankings: [],
+      projections: [{ id: 501, projected_points: '210' }],
+      injuries: [],
+      earlySeasonProjectionsByWeek: [
+        [{ id: 501, projected_points: '12.5' }],
+        [{ id: 501, projected_points: '13.5' }],
+        [{ id: 501, projected_points: '14' }],
+        [{ id: 501, projected_points: '11' }],
+      ],
+    });
+
+    expect(result.players).toHaveLength(1);
+    expect(result.players[0]?.earlySeasonPoints).toBe(51);
+    expect(result.players[0]?.raw.earlySeasonPoints).toBe(51);
   });
 });

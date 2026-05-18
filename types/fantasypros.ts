@@ -21,6 +21,11 @@ export type FantasyProsRankingRecord = FantasyProsRecord & {
   player_name?: string;
   name?: string;
   position?: string;
+  std_dev?: number | string;
+  best?: number | string;
+  worst?: number | string;
+  bye_week?: number | string;
+  byeWeek?: number | string;
 };
 
 export type FantasyProsProjectionRecord = FantasyProsRecord & {
@@ -29,6 +34,8 @@ export type FantasyProsProjectionRecord = FantasyProsRecord & {
   player_name?: string;
   name?: string;
   position?: string;
+  bye_week?: number | string;
+  byeWeek?: number | string;
 };
 
 export type FantasyProsInjuryRecord = FantasyProsRecord & {
@@ -37,4 +44,6 @@ export type FantasyProsInjuryRecord = FantasyProsRecord & {
   position?: string;
   injury_status?: string;
   status?: string;
+  bye_week?: number | string;
+  byeWeek?: number | string;
 };

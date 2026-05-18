@@ -18,6 +18,9 @@ describe('fantasypros-client', () => {
     delete process.env.FANTASYPROS_API_KEY;
     delete process.env.FANTASYPROS_SPORT;
     delete process.env.FANTASYPROS_SEASON;
+    delete process.env.FANTASYPROS_ACTIVE_SEASON;
+    delete process.env.FANTASYPROS_RANKINGS_SEASON;
+    delete process.env.FANTASYPROS_PROJECTIONS_SEASON;
   });
 
   it('builds endpoint paths for public v2 json API', () => {
@@ -139,5 +142,36 @@ describe('fantasypros-client', () => {
     expect(rankings.items).toEqual([{ id: 'r1' }]);
     expect(projections.items).toEqual([{ id: 'p1' }]);
     expect(injuries.items).toEqual([{ id: 'i1' }]);
+  });
+
+  it('uses source-specific season overrides for rankings and projections', async () => {
+    process.env.FANTASYPROS_API_KEY = 'test-key';
+    process.env.FANTASYPROS_SEASON = '2025';
+    process.env.FANTASYPROS_RANKINGS_SEASON = '2026';
+    process.env.FANTASYPROS_PROJECTIONS_SEASON = '2026';
+
+    const fetchMock = vi
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ rankings: [{ id: 'r1' }] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ projections: [{ id: 'p1' }] }),
+      } as Response);
+
+    const [rankings, projections] = await Promise.all([
+      getFantasyProsRankings({ week: 1 }),
+      getFantasyProsProjections({ week: 1 }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.fantasypros.com/public/v2/json/NFL/2026/rankings?week=1');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.fantasypros.com/public/v2/json/nfl/2026/projections?week=1');
+    expect(rankings.items).toEqual([{ id: 'r1' }]);
+    expect(projections.items).toEqual([{ id: 'p1' }]);
   });
 });

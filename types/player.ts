@@ -10,6 +10,13 @@ export type PlayerInput = {
   points?: number | string;
   adp?: number | string;
   avg_adp?: number | string;
+  earlySeasonPoints?: number | string;
+  early_season_points?: number | string;
+  bye_week?: number | string;
+  byeWeek?: number | string;
+  std_dev?: number | string;
+  best?: number | string;
+  worst?: number | string;
   [key: string]: unknown;
 };
 
@@ -19,9 +26,14 @@ export type DashboardPlayer = {
   position: string;
   isRookie: boolean;
   projectedPoints: number;
+  earlySeasonPoints: number | null;
   adp: number | null;
   customValueScore: number;
   overallRank: number | null;
   injuryStatus: string | null;
+  byeWeek: number | null;
+  stdDev: number | null;
+  best: number | null;
+  worst: number | null;
   raw: PlayerInput;
 };

@@ -11,10 +11,12 @@ export type Player = {
   ecr?: number;
   adp?: number;
   proj_pts?: number;
+  earlySeasonPoints?: number | null;
+  byeWeek?: number | null;
   advancedFields?: Record<string, unknown>;
 };
 
-const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'DST'] as const;
+const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'DST'] as const;
 type PositionFilter = (typeof POSITIONS)[number];
 type SortDirection = 'asc' | 'desc';
 type SortKey = 'name' | 'team' | 'position' | 'ecr' | 'proj_pts' | `advanced:${string}`;
@@ -44,6 +46,9 @@ type DraftScoredPlayer = Player & {
   valueGap: number;
   expectedGamesPlayed: number;
   expectedOverallPick: number;
+  stdDev: number | null;
+  earlySeasonPoints: number | null;
+  hotStartBonus: number;
 };
 type DraftTab = 'player-rankings' | 'draft-board';
 type DraftMode = 'safe-floor' | 'matchup-winning-ceiling';
@@ -157,6 +162,12 @@ const STAT_PATHS = {
   ],
   yprr: ['yprr', 'yards_per_route_run', 'yardsPerRouteRun', 'projection.yprr', 'projection.yards_per_route_run'],
   gamesPlayed: ['games_played', 'gamesPlayed', 'projection.games_played', 'projection.gamesPlayed'],
+  earlySeasonPoints: [
+    'earlySeasonPoints',
+    'early_season_points',
+    'projection.earlySeasonPoints',
+    'projection.early_season_points',
+  ],
 } as const;
 
 const HIGH_LEVERAGE_USAGE_MULTIPLIER = 1.08;
@@ -166,6 +177,13 @@ const ROOKIE_LATE_SEASON_BREAKOUT_COEFFICIENT = 1.2;
 const ROOKIE_DRAFT_SCORE_BOOST = 1.5;
 const TIER_BREAK_GAP_POINTS = 1.5;
 const TIER_DROP_WARNING_BOOST = 3.0;
+const BYE_WEEK_CONFLICT_PENALTY = -3.0;
+const UPSIDE_VARIANCE_STD_DEV_THRESHOLD = 5.0;
+const UPSIDE_VARIANCE_BOOST = 2.5;
+const HOT_START_SIGNIFICANCE_RATIO = 1.15;
+const HOT_START_SIGNIFICANCE_PPG_DIFF = 1.5;
+const HOT_START_BONUS_MULTIPLIER = 0.6;
+const HOT_START_BONUS_MAX = 2.25;
 const POSITION_VARIANCE_POINTS: Record<DraftablePosition, number> = {
   QB: 4.5,
   RB: 5.8,
@@ -180,6 +198,7 @@ const BASE_UPSIDE_PROBABILITY: Record<DraftablePosition, number> = {
 };
 const SYNTHETIC_ADVANCED_COLUMN_PATHS = [
   'is_rookie',
+  'volatility',
   'target_share',
   'red_zone_targets',
   'green_zone_touches',
@@ -461,6 +480,15 @@ function getValueAtPath(source: Record<string, unknown> | undefined, path: strin
     return getStatNumber(source, STAT_PATHS.targetShare) ?? undefined;
   }
 
+  if (path === 'volatility') {
+    return (
+      toNumber(getValueAtPathRaw(source, 'std_dev')) ??
+      toNumber(getValueAtPathRaw(source, 'stdDev')) ??
+      toNumber(getValueAtPathRaw(source, 'ranking.std_dev')) ??
+      undefined
+    );
+  }
+
   if (path === 'red_zone_targets') {
     return getStatNumber(source, STAT_PATHS.redZoneTargets) ?? undefined;
   }
@@ -510,6 +538,14 @@ function formatAdvancedValue(value: unknown): string {
 
 function sanitizePathForTestId(path: string): string {
   return path.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function getAdvancedColumnLabel(path: string): string {
+  if (path === 'volatility') {
+    return 'Volatility';
+  }
+
+  return path;
 }
 
 function getSortValue(player: Player, key: SortKey): unknown {
@@ -610,6 +646,33 @@ function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;
   return value;
+}
+
+function normalizeByeWeek(value: unknown): number | null {
+  const parsed = toNumber(value);
+  if (parsed === null || !Number.isFinite(parsed)) {
+    return null;
+  }
+
+  const rounded = Math.round(parsed);
+  if (rounded < 1 || rounded > 18) {
+    return null;
+  }
+
+  return rounded;
+}
+
+function normalizeSeasonLongPointsToPerGame(totalPoints: number): number {
+  if (!Number.isFinite(totalPoints) || totalPoints <= 0) {
+    return 0;
+  }
+
+  // In some payloads projections are already per-game (e.g., ~10-30), while others are season totals.
+  if (totalPoints <= 40) {
+    return totalPoints;
+  }
+
+  return totalPoints / 17;
 }
 
 export function computeLeagueAdjustedProjection(player: Player): {
@@ -916,7 +979,10 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
       console.log('[DashboardClient] search filter applied', { resultCount: filtered.length });
     }
 
-    if (positionFilter !== 'ALL') {
+    if (positionFilter === 'FLEX') {
+      filtered = filtered.filter((player) => player.position === 'RB' || player.position === 'WR' || player.position === 'TE');
+      console.log('[DashboardClient] position filter applied', { positionFilter, resultCount: filtered.length });
+    } else if (positionFilter !== 'ALL') {
       filtered = filtered.filter((player) => player.position === positionFilter);
       console.log('[DashboardClient] position filter applied', { positionFilter, resultCount: filtered.length });
     }
@@ -1031,10 +1097,31 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
           (player.position === 'WR' || player.position === 'TE') && (targetsPerRouteRun > 0.25 || yprr > 2.0);
         const draftScore = baseDraftScore * (qualifiesForBreakoutCoefficient ? BREAKOUT_COEFFICIENT : 1);
         const rookieDraftScoreBoost = hasRookieUpsideProfile(player) ? ROOKIE_DRAFT_SCORE_BOOST : 0;
+        const stdDev =
+          toNumber(getValueAtPath(player.advancedFields, 'volatility')) ??
+          toNumber(getValueAtPathRaw(player.advancedFields, 'std_dev')) ??
+          null;
+        const earlySeasonPoints =
+          toNumber(player.earlySeasonPoints) ??
+          getStatNumber(player.advancedFields, STAT_PATHS.earlySeasonPoints) ??
+          null;
+        const seasonLongPerGame = normalizeSeasonLongPointsToPerGame(player.leagueAdjustedPoints);
+        const earlySeasonPerGame = earlySeasonPoints !== null ? earlySeasonPoints / 4 : null;
+        const isHotStartProfile =
+          earlySeasonPerGame !== null &&
+          earlySeasonPerGame >= seasonLongPerGame * HOT_START_SIGNIFICANCE_RATIO &&
+          earlySeasonPerGame - seasonLongPerGame >= HOT_START_SIGNIFICANCE_PPG_DIFF;
+        const hotStartBonus = isHotStartProfile
+          ? Math.min(HOT_START_BONUS_MAX, (earlySeasonPerGame - seasonLongPerGame) * HOT_START_BONUS_MULTIPLIER)
+          : 0;
+        const byeWeek =
+          normalizeByeWeek(player.byeWeek) ??
+          normalizeByeWeek(getValueAtPathRaw(player.advancedFields, 'bye_week')) ??
+          normalizeByeWeek(getValueAtPathRaw(player.advancedFields, 'byeWeek'));
 
         return {
           ...player,
-          draftScore: Number.parseFloat((draftScore + rookieDraftScoreBoost).toFixed(2)),
+          draftScore: Number.parseFloat((draftScore + rookieDraftScoreBoost + hotStartBonus).toFixed(2)),
           vorp: Number.parseFloat(vorp.toFixed(2)),
           floorVorp: Number.parseFloat(floorVorp.toFixed(2)),
           ceilingVorp: Number.parseFloat(ceilingVorp.toFixed(2)),
@@ -1043,6 +1130,10 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
           upsideProbability: player.upsideProbability,
           expectedGamesPlayed: Number.parseFloat(expectedGamesPlayed.toFixed(1)),
           expectedOverallPick: Number.parseFloat(adp.toFixed(1)),
+          stdDev,
+          earlySeasonPoints,
+          hotStartBonus: Number.parseFloat(hotStartBonus.toFixed(2)),
+          byeWeek,
         };
       })
       .sort((a, b) => b.draftScore - a.draftScore);
@@ -1063,6 +1154,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
         vorp: player.vorp,
         floorVorp: player.floorVorp,
         ceilingVorp: player.ceilingVorp,
+        hotStartBonus: player.hotStartBonus,
       })),
     });
 
@@ -1072,6 +1164,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
   const draftBoard = useMemo<DraftBoardRow[]>(() => {
     const available = [...draftRankedPlayers];
     const roster = { QB: 0, RB: 0, WR: 0, TE: 0 };
+    const draftedPlayers: Array<{ id: string; position: DraftablePosition; team: string; byeWeek: number | null }> = [];
     const rosterByTeam = new Map<string, { QB: number; WR: number; TE: number }>();
     let rosterConstructionPath: 'neutral' | 'hero-rb' | 'zero-rb' = 'neutral';
     const rows: DraftBoardRow[] = [];
@@ -1102,6 +1195,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
         .map((player) => {
           const playerPosition = player.position as DraftablePosition;
           const team = player.team.trim().toUpperCase();
+          const playerByeWeek = normalizeByeWeek(player.byeWeek);
           const teamRoster = rosterByTeam.get(team);
           const completesStack =
             Boolean(teamRoster) &&
@@ -1127,6 +1221,15 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
           const isLastRemainingInTier = remainingPlayersInTierAtPosition === 1;
           const tierDropWarningBoost =
             isStartingPositionNeed && isLastRemainingInTier ? TIER_DROP_WARNING_BOOST : 0;
+          const hasByeWeekConflict =
+            playerByeWeek !== null &&
+            draftedPlayers.some(
+              (draftedPlayer) =>
+                draftedPlayer.position === playerPosition &&
+                draftedPlayer.byeWeek !== null &&
+                draftedPlayer.byeWeek === playerByeWeek,
+            );
+          const byeWeekConflictPenalty = hasByeWeekConflict ? BYE_WEEK_CONFLICT_PENALTY : 0;
 
           const rosterConstructionModifier =
             isZeroRbWindow
@@ -1166,6 +1269,8 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
           const adpDelayPicks = player.expectedOverallPick - overallPick;
           const heavyReachPenalty =
             round <= 6 && adpDelayPicks >= twoRoundBufferPicks ? Math.min(18, adpDelayPicks * 0.35) : 0;
+          const upsideVarianceBoost =
+            round >= 7 && (player.stdDev ?? 0) > UPSIDE_VARIANCE_STD_DEV_THRESHOLD ? UPSIDE_VARIANCE_BOOST : 0;
 
           return {
             player,
@@ -1174,7 +1279,9 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
               heavyReachPenalty +
               correlationBoost +
               rosterConstructionModifier +
-              tierDropWarningBoost,
+              tierDropWarningBoost +
+              upsideVarianceBoost +
+              byeWeekConflictPenalty,
             receivedStackBoost: completesStack,
           };
         })
@@ -1197,6 +1304,12 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
 
         if (isDraftablePosition(primary.position)) {
           roster[primary.position] += 1;
+          draftedPlayers.push({
+            id: primary.id,
+            position: primary.position,
+            team: primary.team.trim().toUpperCase(),
+            byeWeek: normalizeByeWeek(primary.byeWeek),
+          });
         }
 
         if (isStackablePosition(primary.position)) {
@@ -1551,7 +1664,7 @@ export default function DashboardClient({ initialData }: { initialData: Player[]
                     data-testid={`advanced-header-${sanitized}`}
                     onClick={() => handleSort(sortKey)}
                   >
-                    {path} {sortConfig?.key === sortKey && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    {getAdvancedColumnLabel(path)} {sortConfig?.key === sortKey && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                   </th>
                 );
               })}

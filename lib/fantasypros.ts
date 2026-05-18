@@ -116,6 +116,38 @@ function parseAdp(input: unknown): number | null {
   return Number.parseFloat(adp.toFixed(1));
 }
 
+function parseRankingMetric(input: unknown): number | null {
+  const value = parseOptionalFloat(input);
+  if (value === null || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return Number.parseFloat(value.toFixed(2));
+}
+
+function parseByeWeek(input: unknown): number | null {
+  const value = parseOptionalFloat(input);
+  if (value === null || !Number.isFinite(value)) {
+    return null;
+  }
+
+  const asInteger = Math.round(value);
+  if (asInteger < 1 || asInteger > 18) {
+    return null;
+  }
+
+  return asInteger;
+}
+
+function parseEarlySeasonPoints(input: unknown): number | null {
+  const value = parseOptionalFloat(input);
+  if (value === null || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return Number.parseFloat(value.toFixed(2));
+}
+
 function parseBooleanFlag(value: unknown): boolean | null {
   if (typeof value === 'boolean') {
     return value;
@@ -250,6 +282,23 @@ function getScoringQueryFromEnv(): FantasyProsQueryParams {
   return { scoring: scoring.toUpperCase() };
 }
 
+function getActiveSeasonQueryFromEnv(): FantasyProsQueryParams {
+  const activeSeason = process.env.FANTASYPROS_ACTIVE_SEASON;
+  if (!activeSeason) {
+    return {};
+  }
+
+  const parsedSeason = Number.parseInt(activeSeason, 10);
+  if (!Number.isFinite(parsedSeason) || parsedSeason < 2012) {
+    console.warn('[getActiveSeasonQueryFromEnv] Invalid FANTASYPROS_ACTIVE_SEASON value; skipping active season query', {
+      activeSeason,
+    });
+    return {};
+  }
+
+  return { season: parsedSeason };
+}
+
 function mergeRecordsByKey(
   sourceRecords: FantasyProsRecord[],
   targetMap: Map<string, { key: string; records: Partial<Record<'player' | 'ranking' | 'projection' | 'injury', FantasyProsRecord>> }>,
@@ -316,6 +365,7 @@ function mergeRecordsByKey(
 function buildDashboardPlayer(
   entry: { key: string; records: Partial<Record<'player' | 'ranking' | 'projection' | 'injury', FantasyProsRecord>> },
   fallbackIndex: number,
+  earlySeasonPointsByCanonicalKey: Map<string, number>,
 ): DashboardPlayer {
   const playerRecord = (entry.records.player ?? {}) as PlayerInput;
   const rankingRecord = (entry.records.ranking ?? {}) as FantasyProsRankingRecord;
@@ -345,7 +395,14 @@ function buildDashboardPlayer(
       rankingRecord.overall_rank ??
       rankingRecord.overallRank ??
       rankingRecord.ecr ??
-      rankingRecord.position_rank,
+      rankingRecord.position_rank ??
+      playerRecord.rank ??
+      playerRecord.rank_ecr ??
+      playerRecord.overall_rank ??
+      playerRecord.overallRank ??
+      playerRecord.ecr ??
+      playerRecord.pos_rank ??
+      playerRecord.position_rank,
   );
   const adp = parseAdp(
     rankingRecord.adp ??
@@ -356,6 +413,28 @@ function buildDashboardPlayer(
       playerRecord.adp ??
       playerRecord.avg_adp,
   );
+  const stdDev = parseRankingMetric(rankingRecord.std_dev ?? playerRecord.std_dev);
+  const best = parseRankingMetric(rankingRecord.best ?? playerRecord.best);
+  const worst = parseRankingMetric(rankingRecord.worst ?? playerRecord.worst);
+  const byeWeek = parseByeWeek(
+    playerRecord.bye_week ??
+      playerRecord.byeWeek ??
+      rankingRecord.bye_week ??
+      rankingRecord.byeWeek ??
+      projectionRecord.bye_week ??
+      projectionRecord.byeWeek ??
+      injuryRecord.bye_week ??
+      injuryRecord.byeWeek,
+  );
+  const earlySeasonPoints =
+    parseEarlySeasonPoints(
+      playerRecord.earlySeasonPoints ??
+        playerRecord.early_season_points ??
+        projectionRecord.earlySeasonPoints ??
+        projectionRecord.early_season_points ??
+        rankingRecord.earlySeasonPoints ??
+        rankingRecord.early_season_points,
+    ) ?? parseEarlySeasonPoints(earlySeasonPointsByCanonicalKey.get(entry.key));
 
   const injuryStatus =
     (typeof injuryRecord.injury_status === 'string' && injuryRecord.injury_status) ||
@@ -370,6 +449,9 @@ function buildDashboardPlayer(
     position,
     isRookie,
     projected_points: projectedPoints,
+    std_dev: stdDev ?? undefined,
+    best: best ?? undefined,
+    worst: worst ?? undefined,
   };
 
   const valueProjection = calculatePlayerValue(modelInput);
@@ -380,18 +462,63 @@ function buildDashboardPlayer(
     position,
     isRookie,
     projectedPoints,
+    earlySeasonPoints,
     adp,
     overallRank,
     injuryStatus,
+    byeWeek,
     customValueScore: valueProjection.median,
+    stdDev,
+    best,
+    worst,
     raw: {
       ...playerRecord,
+      std_dev: stdDev ?? undefined,
+      best: best ?? undefined,
+      worst: worst ?? undefined,
+      earlySeasonPoints: earlySeasonPoints ?? undefined,
+      early_season_points: earlySeasonPoints ?? undefined,
+      bye_week: byeWeek ?? undefined,
+      byeWeek: byeWeek ?? undefined,
       valueProjection,
       projection: projectionRecord,
       ranking: rankingRecord,
       injury: injuryRecord,
     },
   };
+}
+
+function aggregateEarlySeasonPointsByCanonicalKey(
+  weeklyProjections: FantasyProsProjectionRecord[][],
+  aliasToCanonicalKeyMap: Map<string, string>,
+): Map<string, number> {
+  const earlySeasonPointsByCanonicalKey = new Map<string, number>();
+
+  for (const weeklyProjectionSet of weeklyProjections) {
+    for (const record of weeklyProjectionSet) {
+      const aliases = createAliases(record);
+      if (aliases.length === 0) {
+        continue;
+      }
+
+      const canonicalKey = aliases
+        .map((alias) => aliasToCanonicalKeyMap.get(alias))
+        .find((matchedKey): matchedKey is string => Boolean(matchedKey));
+      if (!canonicalKey) {
+        continue;
+      }
+
+      const weeklyPoints = parseProjectedPoints(record as Partial<PlayerInput>);
+      if (!Number.isFinite(weeklyPoints) || weeklyPoints <= 0) {
+        continue;
+      }
+
+      const nextPointsTotal = (earlySeasonPointsByCanonicalKey.get(canonicalKey) ?? 0) + weeklyPoints;
+      earlySeasonPointsByCanonicalKey.set(canonicalKey, Number.parseFloat(nextPointsTotal.toFixed(2)));
+    }
+  }
+
+  return earlySeasonPointsByCanonicalKey;
 }
 
 function getTeamFromEntry(
@@ -504,6 +631,7 @@ export function buildFullFantasyProsModel(input: {
   rankings: FantasyProsRankingRecord[];
   projections: FantasyProsProjectionRecord[];
   injuries: FantasyProsInjuryRecord[];
+  earlySeasonProjectionsByWeek?: FantasyProsProjectionRecord[][];
 }): { players: DashboardPlayer[] } {
   const entityMap = new Map<
     string,
@@ -516,8 +644,14 @@ export function buildFullFantasyProsModel(input: {
   mergeRecordsByKey(input.projections as FantasyProsRecord[], entityMap, aliasToCanonicalKeyMap, 'projection');
   mergeRecordsByKey(input.injuries as FantasyProsRecord[], entityMap, aliasToCanonicalKeyMap, 'injury');
 
+  const earlySeasonPointsByCanonicalKey = aggregateEarlySeasonPointsByCanonicalKey(
+    input.earlySeasonProjectionsByWeek ?? [],
+    aliasToCanonicalKeyMap,
+  );
   const mergedEntries = Array.from(entityMap.values());
-  const mergedPlayers = mergedEntries.map((entry, index) => buildDashboardPlayer(entry, index));
+  const mergedPlayers = mergedEntries.map((entry, index) =>
+    buildDashboardPlayer(entry, index, earlySeasonPointsByCanonicalKey),
+  );
   applyTeamPieScaling(mergedPlayers, mergedEntries);
   const players = mergedPlayers.filter((player, index) => {
     if (isKickerPosition(player.position)) {
@@ -552,24 +686,39 @@ export type FantasyProsResult = {
 export async function getFantasyProsPlayers(options?: { forceRefresh?: boolean }): Promise<FantasyProsResult> {
   const weekQuery = getWeekQueryFromEnv();
   const scoringQuery = getScoringQueryFromEnv();
+  const activeSeasonQuery = getActiveSeasonQueryFromEnv();
   const rankingsAndProjectionsQuery = { ...weekQuery, ...scoringQuery };
+  const earlySeasonWeeks = [1, 2, 3, 4] as const;
 
   console.log('[getFantasyProsPlayers] Fetching full-model sources', {
     weekQuery,
     scoringQuery,
+    activeSeasonQuery,
     forceRefresh: Boolean(options?.forceRefresh),
   });
 
-  const [playersResult, rankingsResult, projectionsResult, injuriesResult] = await Promise.all([
+  const [playersResult, rankingsResult, projectionsResult, injuriesResult, earlySeasonProjectionResults] = await Promise.all([
     getFantasyProsPlayersFromApi({
       ecr: 'included',
       show: 'pos_rank',
+      ...activeSeasonQuery,
     }, { forceFresh: options?.forceRefresh }),
     getFantasyProsRankings(rankingsAndProjectionsQuery, { forceFresh: options?.forceRefresh }),
     getFantasyProsProjections({
       ...rankingsAndProjectionsQuery,
     }, { forceFresh: options?.forceRefresh }),
     getFantasyProsInjuries(weekQuery, { forceFresh: options?.forceRefresh }),
+    Promise.all(
+      earlySeasonWeeks.map((week) =>
+        getFantasyProsProjections(
+          {
+            ...scoringQuery,
+            week,
+          },
+          { forceFresh: options?.forceRefresh },
+        ),
+      ),
+    ),
   ]);
 
   const model = buildFullFantasyProsModel({
@@ -577,6 +726,7 @@ export async function getFantasyProsPlayers(options?: { forceRefresh?: boolean }
     rankings: rankingsResult.items,
     projections: projectionsResult.items,
     injuries: injuriesResult.items,
+    earlySeasonProjectionsByWeek: earlySeasonProjectionResults.map((result) => result.items),
   });
 
   const errors = [
@@ -584,11 +734,12 @@ export async function getFantasyProsPlayers(options?: { forceRefresh?: boolean }
     rankingsResult.errorMessage,
     projectionsResult.errorMessage,
     injuriesResult.errorMessage,
+    ...earlySeasonProjectionResults.map((result) => result.errorMessage),
   ].filter((item): item is string => Boolean(item));
 
   const mergedErrorMessage = errors.length ? errors.join(' | ') : null;
 
-  const fetchedAtIso = [playersResult, rankingsResult, projectionsResult, injuriesResult]
+  const fetchedAtIso = [playersResult, rankingsResult, projectionsResult, injuriesResult, ...earlySeasonProjectionResults]
     .map((result) => result.fetchedAtIso)
     .sort()
     .at(-1) ?? new Date().toISOString();
@@ -600,6 +751,7 @@ export async function getFantasyProsPlayers(options?: { forceRefresh?: boolean }
       rankings: rankingsResult.items.length,
       projections: projectionsResult.items.length,
       injuries: injuriesResult.items.length,
+      earlySeasonWeeklyProjections: earlySeasonProjectionResults.map((result) => result.items.length),
     },
     hadErrors: Boolean(mergedErrorMessage),
   });
@@ -612,12 +764,14 @@ export async function getFantasyProsPlayers(options?: { forceRefresh?: boolean }
         rankings: rankingsResult.endpoint,
         projections: projectionsResult.endpoint,
         injuries: injuriesResult.endpoint,
+        earlySeasonProjections: earlySeasonProjectionResults.map((result) => result.endpoint),
       },
       sourceCounts: {
         players: playersResult.items.length,
         rankings: rankingsResult.items.length,
         projections: projectionsResult.items.length,
         injuries: injuriesResult.items.length,
+        earlySeasonWeeklyProjections: earlySeasonProjectionResults.map((result) => result.items.length),
       },
       mergedCount: model.players.length,
       errors,
@@ -626,6 +780,7 @@ export async function getFantasyProsPlayers(options?: { forceRefresh?: boolean }
         rankings: rankingsResult.rawPayload,
         projections: projectionsResult.rawPayload,
         injuries: injuriesResult.rawPayload,
+        earlySeasonProjections: earlySeasonProjectionResults.map((result) => result.rawPayload),
       },
     },
     fetchedAtIso,

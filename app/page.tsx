@@ -13,6 +13,11 @@ type DashboardTablePlayer = {
   ecr?: number;
   adp?: number;
   proj_pts?: number;
+  earlySeasonPoints?: number;
+  byeWeek?: number;
+  stdDev?: number;
+  best?: number;
+  worst?: number;
   advancedFields: Record<string, unknown>;
 };
 
@@ -38,11 +43,24 @@ function mapToDashboardTablePlayers(players: Awaited<ReturnType<typeof getFantas
     ecr: player.overallRank ?? undefined,
     adp: player.adp ?? undefined,
     proj_pts: player.projectedPoints,
+    earlySeasonPoints: player.earlySeasonPoints ?? undefined,
+    byeWeek: player.byeWeek ?? undefined,
+    stdDev: player.stdDev ?? undefined,
+    best: player.best ?? undefined,
+    worst: player.worst ?? undefined,
     advancedFields: {
       ...player.raw,
       isRookie: player.isRookie,
       overallRank: player.overallRank,
       adp: player.adp,
+      earlySeasonPoints: player.earlySeasonPoints,
+      early_season_points: player.earlySeasonPoints,
+      bye_week: player.byeWeek,
+      byeWeek: player.byeWeek,
+      std_dev: player.stdDev,
+      volatility: player.stdDev,
+      best: player.best,
+      worst: player.worst,
       projectedPoints: player.projectedPoints,
       customValueScore: player.customValueScore,
       injuryStatus: player.injuryStatus,
