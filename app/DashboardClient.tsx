@@ -209,6 +209,8 @@ const DEFAULT_VISIBLE_ADVANCED_COLUMNS = [
   'early_season_points',
   // Variance/upside signals used by ranking logic in later rounds.
   'volatility',
+  // Rookie profile directly drives ceiling and draft-score boosts.
+  'is_rookie',
   // Usage + efficiency signals used by projection and breakout logic.
   'target_share',
   'green_zone_touches_per_game',
@@ -219,7 +221,6 @@ const DEFAULT_VISIBLE_ADVANCED_COLUMNS = [
 const SYNTHETIC_ADVANCED_COLUMN_PATHS = [
   ...DEFAULT_VISIBLE_ADVANCED_COLUMNS,
   // Keep these discoverable in the dropdown even if not visible by default.
-  'is_rookie',
   'red_zone_targets',
   'green_zone_touches',
 ] as const;
