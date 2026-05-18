@@ -37,6 +37,23 @@ function parseFloatSafe(value: unknown): number {
   return 0;
 }
 
+function parseOptionalFloat(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function parseProjectedPoints(player: Partial<PlayerInput>): number {
   const directPoints = parseFloatSafe(player.projected_points ?? player.projectedPoints ?? player.points);
   if (directPoints > 0) {
@@ -143,8 +160,8 @@ function parseIsRookie(...records: Array<Partial<FantasyProsRecord> | undefined>
       record.exp ??
       record.nfl_exp ??
       record.season_experience;
-    const parsedExperience = parseFloatSafe(experience);
-    if (Number.isFinite(parsedExperience) && parsedExperience >= 0) {
+    const parsedExperience = parseOptionalFloat(experience);
+    if (parsedExperience !== null && parsedExperience >= 0) {
       return parsedExperience === 0;
     }
   }

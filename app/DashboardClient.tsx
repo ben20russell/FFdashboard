@@ -458,27 +458,27 @@ function getValueAtPath(source: Record<string, unknown> | undefined, path: strin
   }
 
   if (path === 'target_share') {
-    return getStatNumber(source, STAT_PATHS.targetShare);
+    return getStatNumber(source, STAT_PATHS.targetShare) ?? undefined;
   }
 
   if (path === 'red_zone_targets') {
-    return getStatNumber(source, STAT_PATHS.redZoneTargets);
+    return getStatNumber(source, STAT_PATHS.redZoneTargets) ?? undefined;
   }
 
   if (path === 'green_zone_touches') {
-    return getStatNumber(source, STAT_PATHS.greenZoneTouches);
+    return getStatNumber(source, STAT_PATHS.greenZoneTouches) ?? undefined;
   }
 
   if (path === 'green_zone_touches_per_game') {
-    return getGreenZoneTouchesPerGame(source);
+    return getGreenZoneTouchesPerGame(source) ?? undefined;
   }
 
   if (path === 'targets_per_route_run') {
-    return getStatNumber(source, STAT_PATHS.targetsPerRouteRun);
+    return getStatNumber(source, STAT_PATHS.targetsPerRouteRun) ?? undefined;
   }
 
   if (path === 'yprr') {
-    return getStatNumber(source, STAT_PATHS.yprr);
+    return getStatNumber(source, STAT_PATHS.yprr) ?? undefined;
   }
 
   return getValueAtPathRaw(source, path);

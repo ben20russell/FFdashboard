@@ -160,4 +160,35 @@ describe('buildFullFantasyProsModel', () => {
     expect(result.players).toHaveLength(1);
     expect(result.players[0]?.isRookie).toBe(true);
   });
+
+  it('does not mark every player as rookie when experience fields are missing', () => {
+    const result = buildFullFantasyProsModel({
+      players: [{ id: 401, player_name: 'Veteran By Default', position_id: 'WR' }],
+      rankings: [],
+      projections: [{ id: 401, projected_points: '9.4' }],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(1);
+    expect(result.players[0]?.isRookie).toBe(false);
+  });
+
+  it('derives rookie status from numeric experience when provided', () => {
+    const result = buildFullFantasyProsModel({
+      players: [
+        { id: 402, player_name: 'Year 0 Rookie', position_id: 'RB', years_exp: 0 },
+        { id: 403, player_name: 'Year 3 Veteran', position_id: 'WR', years_exp: 3 },
+      ],
+      rankings: [],
+      projections: [
+        { id: 402, projected_points: '8.1' },
+        { id: 403, projected_points: '11.9' },
+      ],
+      injuries: [],
+    });
+
+    expect(result.players).toHaveLength(2);
+    expect(result.players.find((player) => player.id === '402')?.isRookie).toBe(true);
+    expect(result.players.find((player) => player.id === '403')?.isRookie).toBe(false);
+  });
 });
